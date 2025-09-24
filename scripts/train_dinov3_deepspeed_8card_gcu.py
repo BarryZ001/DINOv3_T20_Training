@@ -127,7 +127,9 @@ def main() -> None:
         num_workers=4
     )
     
-    # 初始化DeepSpeed - 使用配置文件中的优化器设置
+    # 🔧 初始化DeepSpeed - 依赖配置文件中的优化器设置
+    # 不再手动创建优化器，避免与DeepSpeed的FusedAdam冲突
+    # 配置文件中已明确指定使用AdamW优化器，兼容GCU硬件
     model_engine, optimizer, _, _ = deepspeed.initialize(
         model=model,
         config=deepspeed_config
