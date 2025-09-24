@@ -56,34 +56,12 @@ except ImportError as e:
     print(f"❌ MMSegmentation导入失败: {e}")
     sys.exit(1)
 
-# 导入自定义模块 - 确保在正确的DATASETS注册表中注册MMRS1MDataset
+# 导入自定义模块
 try:
     import mmseg_custom.models
-    import mmseg_custom.datasets  # 这会注册MMRS1MDataset到mmseg的DATASETS
+    import mmseg_custom.datasets  # 这会注册MMRS1MDataset到MMEngine的DATASETS
     import mmseg_custom.transforms
     print("✅ 自定义模块导入成功")
-    
-    # 验证MMRS1MDataset在mmseg注册表中的状态
-    from mmseg.registry import DATASETS as MMSEG_DATASETS
-    if 'MMRS1MDataset' in MMSEG_DATASETS._module_dict:
-        print("✅ MMRS1MDataset已成功注册到MMSeg DATASETS注册表")
-    else:
-        print("⚠️ MMRS1MDataset未在MMSeg DATASETS注册表中找到，手动注册...")
-        # 手动导入并注册到mmseg注册表
-        from mmseg_custom.datasets.mmrs1m_dataset import MMRS1MDataset
-        from mmseg_custom.datasets.loveda_dataset import LoveDADataset
-        print("✅ 手动导入数据集类完成")
-        
-        # 强制重新注册到mmseg注册表
-        MMSEG_DATASETS.register_module(module=MMRS1MDataset, force=True)
-        MMSEG_DATASETS.register_module(module=LoveDADataset, force=True)
-        print("✅ 强制重新注册数据集到MMSeg DATASETS完成")
-        
-        # 再次验证
-        if 'MMRS1MDataset' in MMSEG_DATASETS._module_dict:
-            print("✅ MMRS1MDataset重新注册成功")
-        else:
-            print("❌ MMRS1MDataset重新注册失败")
         
 except ImportError as e:
     print(f"⚠️ 自定义模块导入失败: {e}")
@@ -92,13 +70,6 @@ except ImportError as e:
         from mmseg_custom.datasets.mmrs1m_dataset import MMRS1MDataset
         from mmseg_custom.datasets.loveda_dataset import LoveDADataset
         print("✅ 手动导入数据集类成功")
-        
-        # 手动注册到mmseg DATASETS
-        from mmseg.registry import DATASETS as MMSEG_DATASETS
-        MMSEG_DATASETS.register_module(module=MMRS1MDataset, force=True)
-        MMSEG_DATASETS.register_module(module=LoveDADataset, force=True)
-        print("✅ 手动注册数据集到MMSeg DATASETS成功")
-        
     except ImportError as e2:
         print(f"❌ 手动导入数据集失败: {e2}")
         sys.exit(1)
