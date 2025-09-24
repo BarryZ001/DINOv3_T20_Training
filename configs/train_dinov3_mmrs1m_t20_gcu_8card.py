@@ -156,17 +156,16 @@ val_pipeline = [
 # 测试管道
 test_pipeline = val_pipeline
 
-# 数据加载器配置 - 8卡分布式训练
-# 🚀 性能模式：恢复多进程数据加载以获得最佳性能
+# 数据加载器配置 (生产版 - 恢复高性能设置)
 train_dataloader = dict(
-    batch_size=1,  # 🔥 临时降低batch_size避免collate问题
-    num_workers=2,  # 🔥 减少worker数量便于调试
-    persistent_workers=False,  # 🔥 禁用持久化worker便于调试
+    batch_size=8,  # 每个GCU的batch size
+    num_workers=8,  # 增加worker数量以提升数据加载速度
+    persistent_workers=True,  # 开启持久化worker，减少开销
     sampler=dict(type='InfiniteSampler', shuffle=True),
     dataset=dict(
         type=dataset_type,
         data_root=data_root,
-        task_type='segmentation',  # 修改为分割任务
+        task_type='segmentation',
         modality='optical',
         instruction_format=True,
         pipeline=train_pipeline
@@ -175,8 +174,8 @@ train_dataloader = dict(
 
 # 验证数据加载器
 val_dataloader = dict(
-    batch_size=1,
-    num_workers=4,
+    batch_size=8,
+    num_workers=8,
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=False),
     dataset=dict(
@@ -199,48 +198,52 @@ val_evaluator = dict(
 )
 test_evaluator = val_evaluator
 
-# 优化器配置 - 8卡分布式训练
+# 优化器配置 (生产版 - 恢复高性能设置)
 optim_wrapper = dict(
-    type='OptimWrapper',
+    type='AmpOptimWrapper',
     optimizer=dict(
         type='AdamW',
-        lr=1e-4,  # 8卡训练使用更高学习率
-        betas=(0.9, 0.999),
-        weight_decay=0.05
+        lr=1e-4,  # 恢复正常学习率
+        weight_decay=0.05,
+        betas=(0.9, 0.999)
     ),
     paramwise_cfg=dict(
+        norm_decay_mult=0.0,
+        bias_decay_mult=0.0,
         custom_keys={
-            'backbone': dict(lr_mult=0.1),  # backbone使用较小学习率
-            'norm': dict(decay_mult=0.0),   # 不对norm层进行权重衰减
-            'bias': dict(decay_mult=0.0),   # 不对bias进行权重衰减
+            '.cls_token': dict(decay_mult=0.0),
+            '.pos_embed': dict(decay_mult=0.0),
         }
-    )
+    ),
+    clip_grad=dict(max_norm=1.0, norm_type=2),
+    loss_scale='dynamic'
 )
 
-# 学习率调度器
+# 学习率调度器 (生产版)
 param_scheduler = [
     dict(
         type='LinearLR',
-        start_factor=1e-6,
+        start_factor=0.1,
         by_epoch=False,
         begin=0,
-        end=1000  # warmup步数
+        end=1000,  # warmup步数
     ),
     dict(
-        type='PolyLR',
-        eta_min=1e-6,
-        power=1.0,
+        type='CosineAnnealingLR',
+        T_max=100000,  # 总训练步数
+        by_epoch=False,
         begin=1000,
-        end=40000,  # 8卡训练减少总步数
-        by_epoch=False
+        end=100000,
     )
 ]
 
-# 训练配置
+# 训练循环配置 (生产版)
 train_cfg = dict(
     type='IterBasedTrainLoop',
-    max_iters=40000,  # 8卡训练减少总迭代数
-    val_interval=1000  # 验证间隔
+    max_iters=100000,  # 恢复正常训练步数
+    val_begin=1,
+    val_interval=5000,  # 每5000步验证一次
+    dynamic_intervals=[(90000, 1000)]  # 最后阶段增加验证频率
 )
 
 val_cfg = dict(type='ValLoop')
@@ -270,11 +273,61 @@ default_hooks = dict(
     )
 )
 
-# 环境配置 - 燧原T20 GCU 8卡分布式训练
+# DeepSpeed配置集成
+deepspeed_config = dict(
+    train_batch_size=64,  # 8卡 * 8 batch_size
+    train_micro_batch_size_per_gpu=8,
+    gradient_accumulation_steps=1,
+    
+    optimizer=dict(
+        type='AdamW',
+        params=dict(
+            lr=1e-4,
+            betas=[0.9, 0.999],
+            eps=1e-8,
+            weight_decay=0.05
+        )
+    ),
+    
+    scheduler=dict(
+        type='WarmupCosineLR',
+        params=dict(
+            total_num_steps=100000,
+            warmup_num_steps=1000,
+            warmup_max_lr=1e-4,
+            warmup_min_lr=1e-6
+        )
+    ),
+    
+    fp16=dict(
+        enabled=True,
+        loss_scale=0,
+        loss_scale_window=1000,
+        initial_scale_power=16,
+        hysteresis=2,
+        min_loss_scale=1
+    ),
+    
+    zero_optimization=dict(
+        stage=2,
+        allgather_partitions=True,
+        allgather_bucket_size=2e8,
+        overlap_comm=True,
+        reduce_scatter=True,
+        reduce_bucket_size=2e8,
+        contiguous_gradients=True
+    ),
+    
+    gradient_clipping=1.0,
+    wall_clock_breakdown=False,
+    steps_per_print=100
+)
+
+# 环境配置 (生产版 - 燧原T20 GCU)
 env_cfg = dict(
-    cudnn_benchmark=False,  # GCU环境下禁用cudnn
+    cudnn_benchmark=False,  # GCU环境禁用cudnn
     mp_cfg=dict(mp_start_method='fork', opencv_num_threads=0),
-    dist_cfg=dict(backend='eccl'),  # 使用eccl高性能后端，充分利用GCU间高速互联
+    dist_cfg=dict(backend='eccl'),  # 使用燧原ECCL后端
     resource_limit=4096
 )
 
@@ -360,6 +413,15 @@ model_ema_config = dict(
 
 # 混合精度训练由--amp标志控制，移除配置文件中的fp16设置避免冲突
 # fp16 = dict(loss_scale=512.0)  # 已移除，使用训练脚本的--amp标志替代
+
+# 梯度累积配置 (生产版)
+custom_hooks = [
+    dict(
+        type='GradientAccumulationHook',
+        accumulation_steps=1,  # 恢复正常梯度累积
+        priority='ABOVE_NORMAL'
+    )
+]
 
 # 梯度累积
 accumulative_counts = 1  # 8卡训练不需要梯度累积
