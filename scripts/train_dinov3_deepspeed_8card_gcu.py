@@ -88,7 +88,10 @@ def make_deepspeed_config(config_path="/tmp/ds_config.json"):
         "fp16": {"enabled": False},  # GCU环境下暂时不使用fp16
         "zero_optimization": {"stage": 0},  # 不使用ZeRO优化
         "steps_per_print": 10,
-        "wall_clock_breakdown": False
+        "wall_clock_breakdown": False,
+        # 添加分布式配置，避免MPI依赖
+        "comms_logger": {"enabled": False},
+        "tensorboard": {"enabled": False}
     }
     
     with open(config_path, "w") as f:
@@ -326,14 +329,22 @@ def main():
     # 燧原文档要求：确保模型已经to到device上，然后再使用deepspeed.initialize
     print(f"📍 确认模型设备状态: {next(model.parameters()).device}")
     
-    # DeepSpeed会自动初始化分布式环境
-    engine, _, _, _ = deepspeed.initialize(
-        config=ds_config_path,
-        model=model,  # 确保 model 已经在 device 上
-        optimizer=optimizer,
-        model_parameters=model.parameters()
-    )
-    print("✅ DeepSpeed引擎初始化完成")
+    # 检查是否有MPI环境，如果没有则使用单GPU模式
+    try:
+        # 尝试初始化DeepSpeed
+        engine, _, _, _ = deepspeed.initialize(
+            config=ds_config_path,
+            model=model,  # 确保 model 已经在 device 上
+            optimizer=optimizer,
+            model_parameters=model.parameters()
+        )
+        print("✅ DeepSpeed引擎初始化完成")
+        use_deepspeed = True
+    except Exception as e:
+        print(f"⚠️ DeepSpeed初始化失败: {e}")
+        print("🔄 回退到单GPU训练模式...")
+        engine = None
+        use_deepspeed = False
     
     # 7. 显示训练信息
     print(f"📊 训练信息:")
@@ -408,9 +419,13 @@ def main():
                     print(f"⚠️ 未知的batch类型: {type(batch)}")
                     continue
                 
-                # 前向传播 - 使用engine对象（与成功demo相同）
-                engine.zero_grad()
-                outputs = engine(batch)
+                # 前向传播 - 根据是否使用DeepSpeed选择不同的方式
+                if use_deepspeed:
+                    engine.zero_grad()
+                    outputs = engine(batch)
+                else:
+                    optimizer.zero_grad()
+                    outputs = model(batch)
                 
                 # 计算损失
                 if isinstance(outputs, dict) and 'loss' in outputs:
@@ -426,13 +441,16 @@ def main():
                 # 打印训练信息（与成功demo相同的格式）
                 print(f"[{local_rank}] step={step} loss={loss.item():.6f} device={loss.device}")
                 
-                # 反向传播 - 使用engine的方法（与成功demo完全相同）
-                engine.backward(loss)
-                engine.step()
+                # 反向传播 - 根据是否使用DeepSpeed选择不同的方式
+                if use_deepspeed:
+                    engine.backward(loss)
+                    engine.step()
+                else:
+                    loss.backward()
+                    optimizer.step()
                 print(f"[{local_rank}] step={step} backward+step ✅")
                 
-                # 添加all-reduce测试（与成功demo完全相同）
-                # 注意：DeepSpeed会自动初始化分布式环境，所以torch.distributed应该可用
+                # 添加all-reduce测试（仅在分布式环境下）
                 if torch.distributed.is_initialized():
                     test_tensor = torch.tensor([local_rank + 1.0], device=device_name)
                     torch.distributed.all_reduce(test_tensor, op=torch.distributed.ReduceOp.SUM)
@@ -462,7 +480,10 @@ def main():
         # 保存模型
         if local_rank == 0:
             save_path = f"{cfg.work_dir}/final_model.pth"
-            torch.save(engine.module.state_dict(), save_path)
+            if use_deepspeed and engine is not None:
+                torch.save(engine.module.state_dict(), save_path)
+            else:
+                torch.save(model.state_dict(), save_path)
             print(f"💾 模型已保存: {save_path}")
         
     except KeyboardInterrupt:
