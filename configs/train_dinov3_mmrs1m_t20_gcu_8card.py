@@ -170,9 +170,7 @@ train_dataloader = dict(
         modality='optical',
         instruction_format=True,
         pipeline=train_pipeline
-    ),
-    # 🔥 添加自定义collate_fn避免tensor形状不一致
-    collate_fn=dict(type='default_collate')
+    )
 )
 
 # 验证数据加载器
