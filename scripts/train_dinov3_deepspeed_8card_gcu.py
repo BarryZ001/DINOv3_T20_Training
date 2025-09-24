@@ -49,9 +49,7 @@ except ImportError as e:
 try:
     import mmseg
     from mmseg.models import *
-    from mmseg.datasets import *
     from mmseg.apis import init_segmentor
-    from mmseg.datasets import build_dataset
     from mmseg.models import build_segmentor
     print("✅ MMSegmentation导入成功")
 except ImportError as e:
@@ -162,14 +160,14 @@ def build_model_and_dataset(cfg, device_name):
     """构建模型和数据集"""
     print(f"📊 构建数据集: {cfg.train_dataloader.dataset.type}")
     
-    # 构建训练数据集
-    train_dataset = build_dataset(cfg.train_dataloader.dataset)
+    # 使用MMEngine的统一构建器构建训练数据集
+    train_dataset = DATASETS.build(cfg.train_dataloader.dataset)
     print(f"✅ 训练数据集大小: {len(train_dataset)}")
     
     # 构建验证数据集（如果存在）
     val_dataset = None
     if hasattr(cfg, 'val_dataloader') and cfg.val_dataloader is not None:
-        val_dataset = build_dataset(cfg.val_dataloader.dataset)
+        val_dataset = DATASETS.build(cfg.val_dataloader.dataset)
         print(f"✅ 验证数据集大小: {len(val_dataset)}")
     
     # 构建模型
