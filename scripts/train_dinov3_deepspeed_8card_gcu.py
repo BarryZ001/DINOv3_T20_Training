@@ -78,7 +78,12 @@ def build_components(cfg: Any, device_name: str) -> tuple:
     # 设置设备
     if torch_gcu_available and torch_gcu is not None and device_name == 'gcu':
         # 使用正确的torch_gcu API
-        device = torch_gcu.current_device()
+        device_id = torch_gcu.current_device()
+        device = f'gcu:{device_id}'
+        model = model.to(device)
+    else:
+        # 如果不是GCU环境，使用CPU
+        device = 'cpu'
         model = model.to(device)
     
     return model, dataset
