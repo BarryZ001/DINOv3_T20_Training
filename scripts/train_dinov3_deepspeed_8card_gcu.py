@@ -160,32 +160,27 @@ def build_model_and_dataset(cfg, device_name):
 
 def main():
     """主函数"""
-    # 使用默认配置，保持与之前启动方式的兼容性
-    default_config = "configs/train_dinov3_mmrs1m_t20_gcu_8card.py"
+    # 创建参数解析器，正确处理DeepSpeed的--local_rank参数
+    parser = argparse.ArgumentParser(description='DINOv3 + MMRS-1M 8卡分布式训练')
+    parser.add_argument('--config', type=str, 
+                       default="configs/train_dinov3_mmrs1m_t20_gcu_8card.py",
+                       help='配置文件路径')
+    parser.add_argument('--work-dir', type=str, default=None,
+                       help='工作目录')
+    parser.add_argument('--local_rank', type=int, default=-1,
+                       help='DeepSpeed自动添加的local rank参数')
+    parser.add_argument('--steps', type=int, default=1000,
+                       help='训练步数')
+    parser.add_argument('--seed', type=int, default=42,
+                       help='随机种子')
     
-    # 如果有命令行参数，使用第一个作为配置文件
-    if len(sys.argv) > 1:
-        config_file = sys.argv[1]
-    else:
-        config_file = default_config
+    # 解析参数
+    args = parser.parse_args()
     
-    # 简化的参数设置，保持与之前的兼容性
-    work_dir = None
-    local_rank = int(os.environ.get("LOCAL_RANK", -1))
-    steps = 1000
-    seed = 42
-    
-    print(f"📝 使用配置文件: {config_file}")
-    
-    class Args:
-        def __init__(self):
-            self.config = config_file
-            self.work_dir = work_dir
-            self.local_rank = local_rank
-            self.steps = steps
-            self.seed = seed
-    
-    args = Args()
+    print(f"📝 使用配置文件: {args.config}")
+    print(f"📝 工作目录: {args.work_dir}")
+    print(f"📝 Local Rank: {args.local_rank}")
+    print(f"📝 训练步数: {args.steps}")
 
     print("🚀 启动DINOv3 + MMRS-1M 8卡分布式训练")
     print("=" * 60)
