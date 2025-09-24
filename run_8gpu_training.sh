@@ -47,6 +47,6 @@ deepspeed --num_gpus=8 \
     --master_addr=$MASTER_ADDR \
     --master_port=$MASTER_PORT \
     $SCRIPT_PATH \
-    $CONFIG_PATH
+    --config $CONFIG_PATH
 
 echo "✅ 8卡GCU分布式训练启动完成"
