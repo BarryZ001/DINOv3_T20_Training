@@ -282,7 +282,7 @@ deepspeed_config = dict(
     # 🔧 关键修复：明确指定AdamW优化器，避免DeepSpeed使用CUDA专用的FusedAdam
     # 这解决了在GCU环境下的 IndexError: list index out of range 错误
     optimizer=dict(
-        type='AdamW',  # 使用标准PyTorch AdamW，兼容GCU硬件
+        type='AdamW',  # 使用标准PyTorch AdamW，兼容GCU硬件，避免CUDA专用组件
         params=dict(
             lr=1e-4,
             betas=[0.9, 0.999],

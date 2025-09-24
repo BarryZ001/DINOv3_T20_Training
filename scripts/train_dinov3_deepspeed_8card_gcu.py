@@ -130,6 +130,7 @@ def main() -> None:
     # 🔧 初始化DeepSpeed - 依赖配置文件中的优化器设置
     # 不再手动创建优化器，避免与DeepSpeed的FusedAdam冲突
     # 配置文件中已明确指定使用AdamW优化器，兼容GCU硬件
+    # 这修复了 IndexError: list index out of range 错误，确保使用标准PyTorch优化器
     model_engine, optimizer, _, _ = deepspeed.initialize(
         model=model,
         config=deepspeed_config
