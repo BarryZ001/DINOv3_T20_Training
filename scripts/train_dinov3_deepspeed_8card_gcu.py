@@ -80,24 +80,49 @@ def setup_gcu_environment():
     pass
 
 def make_deepspeed_config(config_path="/tmp/ds_config.json"):
-    """创建DeepSpeed配置文件"""
+    """创建DeepSpeed配置文件 - 优化为8卡分布式训练"""
     cfg = {
-        "train_batch_size": 16,  # 总batch size
-        "train_micro_batch_size_per_gpu": 2,  # 每个GPU的micro batch size
+        "train_batch_size": 64,  # 8卡总batch size (8 * 8 = 64)
+        "train_micro_batch_size_per_gpu": 8,  # 每个GPU的micro batch size
         "gradient_accumulation_steps": 1,
         "fp16": {"enabled": False},  # GCU环境下暂时不使用fp16
-        "zero_optimization": {"stage": 0},  # 不使用ZeRO优化
+        "zero_optimization": {
+            "stage": 2,  # 使用ZeRO-2优化，适合8卡训练
+            "allgather_partitions": True,
+            "allgather_bucket_size": 2e8,
+            "overlap_comm": True,
+            "reduce_scatter": True,
+            "reduce_bucket_size": 2e8,
+            "contiguous_gradients": True
+        },
+        "optimizer": {
+            "type": "Adam",
+            "params": {
+                "lr": 1e-4,
+                "betas": [0.9, 0.999],
+                "eps": 1e-8,
+                "weight_decay": 0.01
+            }
+        },
+        "scheduler": {
+            "type": "WarmupLR",
+            "params": {
+                "warmup_min_lr": 0,
+                "warmup_max_lr": 1e-4,
+                "warmup_num_steps": 100
+            }
+        },
         "steps_per_print": 10,
         "wall_clock_breakdown": False,
-        # 添加分布式配置，避免MPI依赖
-        "comms_logger": {"enabled": False},
-        "tensorboard": {"enabled": False}
+        "comms_logger": {"enabled": True},  # 启用通信日志以监控8卡通信
+        "tensorboard": {"enabled": True, "output_path": "./tensorboard_logs"},
+        "flops_profiler": {"enabled": False}
     }
     
     with open(config_path, "w") as f:
         json.dump(cfg, f, indent=2)
     
-    print(f"📝 DeepSpeed配置文件: {config_path}")
+    print(f"📝 DeepSpeed 8卡分布式配置文件: {config_path}")
     return config_path
 
 def load_and_validate_config(config_path, work_dir=None):
@@ -283,9 +308,9 @@ def main():
     print("🚀 启动DINOv3 + MMRS-1M 8卡分布式训练")
     print("=" * 60)
     
-    # 1. 设置GCU环境 - 使用与成功demo相同的方式
+    # 1. 设置GCU环境和分布式训练 - 使用与成功demo相同的方式
     local_rank = args.local_rank if args.local_rank >= 0 else int(os.environ.get("LOCAL_RANK", 0))
-    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    world_size = int(os.environ.get("WORLD_SIZE", "8"))  # 默认8卡
     
     # 设置设备
     device_name = f"xla:{local_rank}"
@@ -294,8 +319,36 @@ def main():
     # 设置GCU设备
     if torch_gcu is not None:
         torch_gcu.set_device(local_rank)
+        print(f"✅ 设置GCU设备: {local_rank}")
     else:
         print("⚠️ torch_gcu不可用，跳过设备设置")
+    
+    # 初始化分布式环境
+    if world_size > 1:
+        print(f"🌐 初始化分布式环境 - world_size={world_size}, local_rank={local_rank}")
+        try:
+            # 设置分布式环境变量
+            if 'MASTER_ADDR' not in os.environ:
+                os.environ['MASTER_ADDR'] = 'localhost'
+            if 'MASTER_PORT' not in os.environ:
+                os.environ['MASTER_PORT'] = '29500'
+            
+            # 初始化分布式进程组
+            if not torch.distributed.is_initialized():
+                torch.distributed.init_process_group(
+                    backend='nccl',  # 使用NCCL后端
+                    init_method='env://',
+                    world_size=world_size,
+                    rank=local_rank
+                )
+                print(f"✅ 分布式进程组初始化完成 - rank={local_rank}/{world_size}")
+            else:
+                print("✅ 分布式进程组已初始化")
+        except Exception as e:
+            print(f"⚠️ 分布式初始化失败: {e}")
+            print("🔄 继续使用单卡模式...")
+    else:
+        print("📱 单卡训练模式")
     
     # 2. 加载配置
     cfg = load_and_validate_config(args.config, args.work_dir)
