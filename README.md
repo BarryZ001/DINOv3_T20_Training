@@ -33,8 +33,28 @@ pip install -r requirements.txt
 2. 准备数据集（将MMRS1M数据集放在datasets/目录下）
 
 3. 在T20服务器上运行训练：
+
+**方法1：使用默认配置文件（推荐）**
 ```bash
-python scripts/train_dinov3_deepspeed_8card_gcu.py configs/train_dinov3_mmrs1m_t20_gcu_8card.py
+# 使用DeepSpeed启动8卡分布式训练
+deepspeed --num_gpus=8 scripts/train_dinov3_deepspeed_8card_gcu.py
+```
+
+**方法2：指定配置文件**
+```bash
+# 使用DeepSpeed启动并指定配置文件
+deepspeed --num_gpus=8 scripts/train_dinov3_deepspeed_8card_gcu.py \
+    --config configs/train_dinov3_mmrs1m_t20_gcu_8card.py \
+    --work-dir ./work_dirs/dinov3_training \
+    --steps 10
+```
+
+**方法3：直接运行（单卡测试）**
+```bash
+python scripts/train_dinov3_deepspeed_8card_gcu.py \
+    --config configs/train_dinov3_mmrs1m_t20_gcu_8card.py \
+    --work-dir ./work_dirs/dinov3_training \
+    --steps 10
 ```
 
 ## 特性
