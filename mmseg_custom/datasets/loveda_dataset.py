@@ -5,7 +5,13 @@ import os.path as osp
 from typing import List, Dict, Any, Optional
 
 from mmengine.dataset import BaseDataset
-from mmengine.registry import DATASETS
+# 导入正确的注册表
+try:
+    from mmseg.registry import DATASETS
+    print("✅ 使用MMSeg DATASETS注册表")
+except ImportError:
+    from mmengine.registry import DATASETS
+    print("⚠️ 回退到MMEngine DATASETS注册表")
 
 
 @DATASETS.register_module()

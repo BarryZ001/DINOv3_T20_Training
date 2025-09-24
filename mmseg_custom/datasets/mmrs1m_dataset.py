@@ -15,7 +15,14 @@ from mmengine.fileio import get_local_path
 from PIL import Image
 
 from mmengine.dataset import BaseDataset
-from mmengine.registry import DATASETS
+
+# 导入正确的注册表
+try:
+    from mmseg.registry import DATASETS
+    print("✅ 使用MMSeg DATASETS注册表")
+except ImportError:
+    from mmengine.registry import DATASETS
+    print("⚠️ 回退到MMEngine DATASETS注册表")
 
 
 @DATASETS.register_module()
