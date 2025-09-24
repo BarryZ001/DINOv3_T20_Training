@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 DINOv3 + MMRS-1M 8卡分布式训练脚本 (基于DeepSpeed)
 使用DeepSpeed框架进行GCU环境下的分布式训练
