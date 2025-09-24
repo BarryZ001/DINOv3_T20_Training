@@ -126,6 +126,42 @@ def load_and_validate_config(config_path, work_dir=None):
     print("✅ 配置文件验证通过")
     return cfg
 
+def custom_collate_fn(batch):
+    """自定义collate函数，处理MMSeg的DataContainer对象"""
+    import torch
+    from torch.utils.data.dataloader import default_collate
+    
+    # 处理DataContainer对象
+    def extract_data_from_container(item):
+        try:
+            # 检查是否是DataContainer
+            if hasattr(item, 'data'):
+                return item.data
+            else:
+                return item
+        except:
+            return item
+    
+    # 递归处理batch中的每个元素
+    def process_batch_item(item):
+        if isinstance(item, dict):
+            return {key: process_batch_item(value) for key, value in item.items()}
+        elif isinstance(item, (list, tuple)):
+            return [process_batch_item(x) for x in item]
+        else:
+            return extract_data_from_container(item)
+    
+    # 处理整个batch
+    processed_batch = [process_batch_item(item) for item in batch]
+    
+    # 使用默认的collate函数处理处理后的数据
+    try:
+        return default_collate(processed_batch)
+    except Exception as e:
+        print(f"⚠️ Collate失败: {e}")
+        # 如果还是失败，返回原始batch
+        return processed_batch
+
 def build_model_and_dataset(cfg, device_name):
     """构建模型和数据集"""
     print(f"📊 构建数据集: {cfg.train_dataloader.dataset.type}")
@@ -215,7 +251,7 @@ def main():
         shuffle=True,
         num_workers=cfg.train_dataloader.get('num_workers', 2),
         pin_memory=False,  # GCU环境下不使用pin_memory
-        collate_fn=getattr(train_dataset, 'collate_fn', None)  # 使用数据集的collate_fn
+        collate_fn=custom_collate_fn  # 使用自定义的collate_fn处理DataContainer
     )
     
     # 5. 创建优化器 - 使用与成功demo相同的Adam优化器
