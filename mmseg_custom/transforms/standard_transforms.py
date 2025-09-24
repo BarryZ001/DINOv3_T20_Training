@@ -319,7 +319,8 @@ class Resize:
                  ratio_range=None,
                  keep_ratio=True,
                  min_size=None,
-                 override=False):
+                 override=False,
+                 backend='cv2'):
         if img_scale is None:
             self.img_scale = None
         else:
@@ -341,7 +342,7 @@ class Resize:
         self.keep_ratio = keep_ratio
         self.min_size = min_size
         self.override = override
-        self.backend = 'cv2'  # 添加backend属性
+        self.backend = backend  # 使用传入的backend参数
 
     @staticmethod
     def random_select(img_scales):
