@@ -9,9 +9,28 @@ import sys
 import time
 import signal
 import torch
-import torch_gcu
-from mmengine.config import Config
-from mmengine.dataset import pseudo_collate as collate
+
+# 尝试导入可能在Mac环境下不可用的模块
+try:
+    import torch_gcu
+    torch_gcu_available = True
+except ImportError:
+    torch_gcu_available = False
+    print("⚠️ torch_gcu 在当前环境下不可用")
+
+try:
+    from mmengine.config import Config
+    mmengine_config_available = True
+except ImportError:
+    mmengine_config_available = False
+    print("⚠️ mmengine.config 在当前环境下不可用")
+
+try:
+    from mmengine.dataset import pseudo_collate as collate
+    mmengine_dataset_available = True
+except ImportError:
+    mmengine_dataset_available = False
+    print("⚠️ mmengine.dataset 在当前环境下不可用")
 
 def signal_handler(signum, frame):
     print(f"\n🚨 收到信号 {signum}，正在退出...")
@@ -26,6 +45,11 @@ def test_basic_torch_distributed():
     print("\n=== 测试1: 基础 torch.distributed 初始化 ===")
     
     try:
+        # 检查torch.distributed是否可用
+        if not hasattr(torch, 'distributed'):
+            print("❌ torch.distributed 在当前环境下不可用")
+            return False
+            
         # 设置环境变量
         os.environ['MASTER_ADDR'] = '127.0.0.1'
         os.environ['MASTER_PORT'] = '29500'
@@ -47,9 +71,29 @@ def test_basic_torch_distributed():
         
         print("🚀 开始初始化 torch.distributed...")
         
-        # 使用 nccl 后端进行初始化
+        # 检测可用的后端
+        available_backends = []
+        if torch.distributed.is_nccl_available():
+            available_backends.append('nccl')
+        if torch.distributed.is_gloo_available():
+            available_backends.append('gloo')
+        if torch.distributed.is_mpi_available():
+            available_backends.append('mpi')
+            
+        print(f"🔍 可用的分布式后端: {available_backends}")
+        
+        # 选择合适的后端
+        backend = 'gloo'  # 默认使用gloo，兼容性更好
+        if torch_gcu_available and 'nccl' in available_backends:
+            # 如果有GCU且NCCL可用，尝试使用nccl
+            backend = 'nccl'
+            print(f"🔥 检测到GCU环境，尝试使用 {backend} 后端")
+        else:
+            print(f"🔧 使用 {backend} 后端进行初始化")
+        
+        # 初始化分布式进程组
         torch.distributed.init_process_group(
-            backend='nccl',
+            backend=backend,
             init_method='env://',
             world_size=1,
             rank=0,
