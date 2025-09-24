@@ -693,11 +693,13 @@ class Pad:
                  size=None,
                  size_divisor=None,
                  pad_val=0,
-                 seg_pad_val=255):
+                 seg_pad_val=255,
+                 pad_to_square=False):
         self.size = size
         self.size_divisor = size_divisor
         self.pad_val = pad_val
         self.seg_pad_val = seg_pad_val
+        self.pad_to_square = pad_to_square
         # only one of size and size_divisor should be valid
         assert size is not None or size_divisor is not None
         assert size is None or size_divisor is None
