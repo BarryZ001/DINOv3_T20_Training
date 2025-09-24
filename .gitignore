@@ -31,8 +31,8 @@ work_dirs/
 *.log
 
 # Data
-datasets/
-data/
+/datasets/
+/data/
 
 # IDE
 .vscode/
