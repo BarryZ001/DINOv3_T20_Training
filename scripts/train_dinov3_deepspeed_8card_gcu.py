@@ -189,8 +189,23 @@ def build_model_and_dataset(cfg, device_name):
     
     return model, train_dataset, val_dataset
 
+def setup_signal_handlers():
+    """设置信号处理器，防止死循环"""
+    import signal
+    
+    def signal_handler(signum, frame):
+        print(f"\n⚠️ 收到信号 {signum}，正在优雅退出...")
+        import sys
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
 def main():
     """主函数"""
+    # 设置信号处理器
+    setup_signal_handlers()
+    
     # 创建参数解析器，正确处理DeepSpeed的--local_rank参数
     parser = argparse.ArgumentParser(description='DINOv3 + MMRS-1M 8卡分布式训练')
     parser.add_argument('--config', type=str, 
@@ -365,6 +380,7 @@ def main():
     
     # 检查是否有MPI环境，如果没有则使用单GPU模式
     try:
+        print("🔧 尝试初始化DeepSpeed引擎...")
         # 尝试初始化DeepSpeed
         engine, optimizer, train_dataloader, _ = deepspeed.initialize(
             config=ds_config_path,
@@ -378,7 +394,17 @@ def main():
         use_deepspeed = True
     except Exception as e:
         print(f"⚠️ DeepSpeed初始化失败: {e}")
+        print(f"⚠️ 错误类型: {type(e).__name__}")
+        print(f"⚠️ 错误详情: {str(e)}")
         print("🔄 回退到单GPU训练模式...")
+        
+        # 清理可能的DeepSpeed状态
+        try:
+            import deepspeed
+            deepspeed.init_distributed()
+        except:
+            pass
+            
         # 回退到手动创建DataLoader
         from torch.utils.data import DataLoader
         train_dataloader = DataLoader(
@@ -415,14 +441,37 @@ def main():
                 break
                 
             try:
+                # 检查批次数据的有效性
+                if batch is None:
+                    print(f"⚠️ Step {step}: batch为None，跳过")
+                    continue
+                    
                 # DeepSpeed的DataLoader会自动处理数据到设备的移动
                 # 但对于XLA后端，手动确认一下更保险
                 if use_deepspeed:
-                    inputs = batch['inputs'].to(engine.device)
-                    data_samples = [s.to(engine.device) for s in batch['data_samples']]
+                    # 安全地获取inputs和data_samples
+                    if isinstance(batch, dict):
+                        inputs = batch.get('inputs')
+                        data_samples = batch.get('data_samples', [])
+                    else:
+                        print(f"⚠️ Step {step}: 意外的batch格式: {type(batch)}")
+                        continue
+                    
+                    if inputs is None:
+                        print(f"⚠️ Step {step}: inputs为None，跳过")
+                        continue
+                    
+                    inputs = inputs.to(engine.device)
+                    if data_samples:
+                        data_samples = [s.to(engine.device) for s in data_samples]
                     
                     # 前向传播
-                    loss = engine(inputs, data_samples, mode='loss')['loss']
+                    outputs = engine(inputs, data_samples, mode='loss')
+                    if isinstance(outputs, dict) and 'loss' in outputs:
+                        loss = outputs['loss']
+                    else:
+                        print(f"⚠️ Step {step}: 无法获取loss，outputs: {type(outputs)}")
+                        continue
                     
                     # 打印信息
                     print(f"[{local_rank}] step={step} loss={loss.item():.6f} device={loss.device}")
@@ -469,11 +518,18 @@ def main():
                 # 添加短暂延迟，与成功demo保持一致
                 time.sleep(0.5)
                 
-            except Exception as e:
-                print(f"❌ 训练步骤 {step} 出错: {e}")
-                import traceback
-                traceback.print_exc()
-                continue
+            except Exception as step_error:
+                print(f"❌ Step {step} 训练出错: {step_error}")
+                print(f"❌ 错误类型: {type(step_error).__name__}")
+                print(f"❌ 错误详情: {str(step_error)}")
+                
+                # 如果是关键错误，停止训练
+                if isinstance(step_error, (RuntimeError, KeyError, AttributeError)):
+                    print("💥 遇到关键错误，停止训练")
+                    break
+                else:
+                    print("⚠️ 非关键错误，继续训练")
+                    continue
         
         # 计算训练时间
         end_time = time.time()

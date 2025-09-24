@@ -44,7 +44,7 @@ def debug_dataloader(config_path):
         return
     
     # 4. 创建DataLoader
-    from mmcv.parallel import collate
+    from mmengine.dataset import pseudo_collate as collate
     
     debug_dataloader = DataLoader(
         train_dataset,
