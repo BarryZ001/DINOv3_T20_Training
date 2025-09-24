@@ -273,12 +273,13 @@ default_hooks = dict(
     )
 )
 
-# DeepSpeed配置集成
+# DeepSpeed配置集成 - 修复优化器配置以避免CUDA特定的FusedAdam
 deepspeed_config = dict(
     train_batch_size=64,  # 8卡 * 8 batch_size
     train_micro_batch_size_per_gpu=8,
     gradient_accumulation_steps=1,
     
+    # 明确指定AdamW优化器，避免使用CUDA特定的FusedAdam
     optimizer=dict(
         type='AdamW',
         params=dict(

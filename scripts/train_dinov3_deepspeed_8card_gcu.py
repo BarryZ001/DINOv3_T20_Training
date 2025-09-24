@@ -127,7 +127,7 @@ def main() -> None:
         num_workers=4
     )
     
-    # 初始化DeepSpeed
+    # 初始化DeepSpeed - 使用配置文件中的优化器设置
     model_engine, optimizer, _, _ = deepspeed.initialize(
         model=model,
         config=deepspeed_config
