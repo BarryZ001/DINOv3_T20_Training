@@ -242,7 +242,9 @@ def main():
     
     # ==================== 数据加载调试代码 ====================
     print("\n🔍 === 开始数据加载调试 ===")
-    from mmcv.parallel import collate
+    # Import the new pseudo_collate function from mmengine.dataset
+    # and alias it as collate for convenience.
+    from mmengine.dataset import pseudo_collate as collate
     from torch.utils.data import DataLoader
     
     # 使用与训练时完全相同的参数手动创建一个 DataLoader
@@ -315,7 +317,9 @@ def main():
     #    - 不再手动初始化 torch.distributed 
     #    - 将 train_dataset 直接交给 DeepSpeed 
     print("🔧 初始化DeepSpeed引擎...")
-    from mmcv.parallel import collate
+    # Import the new pseudo_collate function from mmengine.dataset
+    # and alias it as collate for convenience.
+    from mmengine.dataset import pseudo_collate as collate
     
     # 创建优化器 - 使用与成功demo相同的Adam优化器
     print("🔧 创建优化器...")
