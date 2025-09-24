@@ -1,0 +1,26 @@
+# DINOv3 T20 Training Dependencies
+# Core ML frameworks
+torch>=1.13.0
+torchvision>=0.14.0
+
+# MMSegmentation ecosystem
+mmengine>=0.8.0
+mmcv>=2.0.0
+mmsegmentation>=1.1.0
+
+# DeepSpeed for distributed training
+deepspeed>=0.9.0
+
+# Data processing
+numpy>=1.21.0
+opencv-python>=4.5.0
+Pillow>=8.0.0
+albumentations>=1.3.0
+
+# Utilities
+tqdm>=4.64.0
+pyyaml>=6.0
+tensorboard>=2.10.0
+
+# Optional: for T20 GCU support
+# torch-gcu (install separately on T20 server)
