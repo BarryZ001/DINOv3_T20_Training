@@ -240,7 +240,72 @@ def main():
     # 构建模型和数据集
     model, train_dataset, val_dataset = build_model_and_dataset(cfg, device_name)
     
-
+    # ==================== 数据加载调试代码 ====================
+    print("\n🔍 === 开始数据加载调试 ===")
+    from mmcv.parallel import collate
+    from torch.utils.data import DataLoader
+    
+    # 使用与训练时完全相同的参数手动创建一个 DataLoader
+    debug_dataloader = DataLoader(
+        train_dataset,
+        batch_size=2,  # 使用配置文件中的 batch size
+        shuffle=True,
+        num_workers=2,  # 使用少量 worker 以便调试
+        collate_fn=collate
+    )
+    
+    # 迭代几个批次并检查内容
+    for i, batch in enumerate(debug_dataloader):
+        print(f"\n--- 正在检查 Batch #{i} ---")
+        print(f"Batch keys: {list(batch.keys())}")
+        
+        if 'data_samples' not in batch:
+            print("❌ 错误: 批处理数据中没有 'data_samples' 键！")
+            print(f"实际的键: {list(batch.keys())}")
+            continue
+        
+        print(f"Batch size: {len(batch['data_samples'])}")
+        has_labels_count = 0
+        
+        for j, sample in enumerate(batch['data_samples']):
+            print(f"  样本 #{j}:")
+            print(f"    类型: {type(sample)}")
+            print(f"    属性: {dir(sample) if hasattr(sample, '__dict__') else 'N/A'}")
+            
+            if hasattr(sample, 'gt_sem_seg'):
+                if sample.gt_sem_seg is not None:
+                    has_labels_count += 1
+                    if hasattr(sample.gt_sem_seg, 'data'):
+                        print(f"    ✅ 包含标签, 形状: {sample.gt_sem_seg.data.shape}")
+                    else:
+                        print(f"    ✅ 包含标签, 类型: {type(sample.gt_sem_seg)}")
+                else:
+                    print(f"    ⚠️ gt_sem_seg 为 None")
+            else:
+                print(f"    ❌ 缺少 gt_sem_seg 属性")
+                
+            # 检查其他可能的标签字段
+            if hasattr(sample, 'gt_semantic_seg'):
+                print(f"    发现 gt_semantic_seg: {type(sample.gt_semantic_seg)}")
+            
+            # 打印样本的所有属性
+            if hasattr(sample, '__dict__'):
+                print(f"    所有属性: {list(sample.__dict__.keys())}")
+        
+        print(f"批次 #{i} 中有效标签数量: {has_labels_count}/{len(batch['data_samples'])}")
+        
+        if has_labels_count == 0:
+            print(f"❌❌❌ 致命错误: Batch #{i} 中所有样本都缺少有效标签！这就是导致 torch.stack 失败的原因。")
+            print("让我们检查第一个样本的详细信息:")
+            if len(batch['data_samples']) > 0:
+                sample = batch['data_samples'][0]
+                print(f"样本详细信息: {sample}")
+        
+        if i >= 3:  # 只检查前几个批次
+            break
+    
+    print("🔍 === 数据加载调试结束 ===\n")
+    # ========================================================
     
     # 4. 创建DeepSpeed配置
     ds_config_path = make_deepspeed_config()

@@ -122,18 +122,12 @@ train_pipeline = [
         img_scale=img_size,
         keep_ratio=True
     ),
-    # 🚀 恢复数据增强以获得最佳训练效果
-    dict(
-        type='RandomCrop',
-        crop_size=crop_size,
-        cat_max_ratio=0.75
-    ),
+    # 暂时简化数据增强以排除问题
     dict(type='CustomRandomFlip', prob=0.5),
-    dict(type='PhotoMetricDistortion'),  # 恢复光度变换增强
     dict(type='CustomNormalize', **img_norm_cfg),
     dict(type='CustomPad', size=crop_size, pad_val=0, seg_pad_val=255),
-    dict(type='CustomDefaultFormatBundle'),
-    dict(type='CustomCollect', keys=['img', 'gt_semantic_seg'])
+    # 使用标准的PackSegInputs替代CustomCollect
+    dict(type='PackSegInputs', meta_keys=('img_path', 'ori_shape', 'img_shape', 'pad_shape', 'scale_factor', 'flip', 'flip_direction'))
 ]
 
 # 验证管道
@@ -146,8 +140,8 @@ val_pipeline = [
         keep_ratio=True
     ),
     dict(type='CustomNormalize', **img_norm_cfg),
-    dict(type='CustomDefaultFormatBundle'),
-    dict(type='CustomCollect', keys=['img', 'gt_semantic_seg'])
+    # 使用标准的PackSegInputs替代CustomCollect
+    dict(type='PackSegInputs', meta_keys=('img_path', 'ori_shape', 'img_shape', 'pad_shape', 'scale_factor'))
 ]
 
 # 测试管道
@@ -163,7 +157,7 @@ train_dataloader = dict(
     dataset=dict(
         type=dataset_type,
         data_root=data_root,
-        task_type='classification',  # 开始时使用分类任务
+        task_type='segmentation',  # 修改为分割任务
         modality='optical',
         instruction_format=True,
         pipeline=train_pipeline
@@ -179,7 +173,7 @@ val_dataloader = dict(
     dataset=dict(
         type=dataset_type,
         data_root=data_root,
-        task_type='classification',
+        task_type='segmentation',
         modality='optical',
         instruction_format=True,
         pipeline=val_pipeline
