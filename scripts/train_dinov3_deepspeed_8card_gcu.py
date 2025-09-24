@@ -50,7 +50,6 @@ try:
     import mmseg
     from mmseg.models import *
     from mmseg.apis import init_segmentor
-    from mmseg.models import build_segmentor
     print("✅ MMSegmentation导入成功")
 except ImportError as e:
     print(f"❌ MMSegmentation导入失败: {e}")
@@ -143,7 +142,7 @@ def build_model_and_dataset(cfg, device_name):
     
     # 构建模型
     print(f"🏗️ 构建模型: {cfg.model.type}")
-    model = build_segmentor(cfg.model)
+    model = MODELS.build(cfg.model)
     print(f"✅ 模型构建完成")
     
     # 设置设备
