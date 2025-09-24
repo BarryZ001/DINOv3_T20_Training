@@ -223,18 +223,23 @@ def main():
         collate_fn=getattr(train_dataset, 'collate_fn', None)  # 使用数据集的collate_fn
     )
     
-    # 4. 创建优化器 - 手动传入torch.optim.Adam，避免FusedAdam（与成功demo相同）
+    # 5. 创建优化器 - 使用与成功demo相同的Adam优化器
+    print("🔧 创建优化器...")
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     print("✅ 优化器创建完成")
     
-    # 5. 创建DeepSpeed配置 - 使用与成功demo相同的配置
+    # 创建DeepSpeed配置
     ds_config_path = make_deepspeed_config()
     
-    # 6. 初始化DeepSpeed引擎 - 使用与成功demo完全相同的方式
+    # 6. 初始化DeepSpeed引擎 - 根据燧原文档要求，确保模型在设备上
     print("🔧 初始化DeepSpeed引擎...")
+    # 燧原文档要求：确保模型已经to到device上，然后再使用deepspeed.initialize
+    print(f"📍 确认模型设备状态: {next(model.parameters()).device}")
+    
+    # DeepSpeed会自动初始化分布式环境
     engine, _, _, _ = deepspeed.initialize(
         config=ds_config_path,
-        model=model,
+        model=model,  # 确保 model 已经在 device 上
         optimizer=optimizer,
         model_parameters=model.parameters()
     )
@@ -298,8 +303,18 @@ def main():
                 engine.step()
                 print(f"[{local_rank}] step={step} backward+step ✅")
                 
+                # 添加all-reduce测试（与成功demo完全相同）
+                # 注意：DeepSpeed会自动初始化分布式环境，所以torch.distributed应该可用
+                if torch.distributed.is_initialized():
+                    test_tensor = torch.tensor([local_rank + 1.0], device=device_name)
+                    torch.distributed.all_reduce(test_tensor, op=torch.distributed.ReduceOp.SUM)
+                    expected_sum = sum(range(world_size)) + world_size
+                    print(f"[{local_rank}] all_reduce sum result: {test_tensor.item()} (should be {expected_sum})")
+                else:
+                    print(f"[{local_rank}] 分布式环境未初始化，跳过all_reduce测试")
+                
                 # 添加短暂延迟，与成功demo保持一致
-                time.sleep(0.1)
+                time.sleep(0.5)
                 
             except Exception as e:
                 print(f"❌ 训练步骤 {step} 出错: {e}")
