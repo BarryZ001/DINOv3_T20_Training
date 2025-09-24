@@ -82,7 +82,7 @@ echo "DeepSpeed配置: ${DEEPSPEED_CONFIG}"
 # 使用标准DeepSpeed命令启动训练
 deepspeed --num_gpus=8 \
     --master_port=${MASTER_PORT} \
-    train_dinov3_deepspeed_8card_gcu.py \
+    scripts/train_dinov3_deepspeed_8card_gcu.py \
     --config ${CONFIG_FILE} \
     --work-dir ${WORK_DIR} \
     --deepspeed ${DEEPSPEED_CONFIG} \
