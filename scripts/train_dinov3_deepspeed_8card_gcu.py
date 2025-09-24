@@ -127,7 +127,7 @@ def load_and_validate_config(config_path, work_dir=None):
     return cfg
 
 def custom_collate_fn(batch):
-    """自定义collate函数，处理MMSeg的DataContainer对象"""
+    """自定义collate函数，处理MMSeg的DataContainer对象并统一数据格式"""
     import torch
     from torch.utils.data.dataloader import default_collate
     
@@ -154,13 +154,71 @@ def custom_collate_fn(batch):
     # 处理整个batch
     processed_batch = [process_batch_item(item) for item in batch]
     
-    # 使用默认的collate函数处理处理后的数据
-    try:
-        return default_collate(processed_batch)
-    except Exception as e:
-        print(f"⚠️ Collate失败: {e}")
-        # 如果还是失败，返回原始batch
-        return processed_batch
+    # 检查并统一数据格式
+    if processed_batch and isinstance(processed_batch[0], dict):
+        # 如果batch是字典列表，需要合并成统一格式
+        collated_dict = {}
+        
+        # 获取所有键
+        all_keys = set()
+        for item in processed_batch:
+            if isinstance(item, dict):
+                all_keys.update(item.keys())
+        
+        # 对每个键进行collate
+        for key in all_keys:
+            values = []
+            for item in processed_batch:
+                if isinstance(item, dict) and key in item:
+                    val = item[key]
+                    # 确保图像数据是tensor格式
+                    if key in ['img', 'inputs'] and not isinstance(val, torch.Tensor):
+                        if hasattr(val, 'data'):
+                            val = val.data
+                        if isinstance(val, (list, tuple)) and len(val) > 0:
+                            # 如果是list/tuple，取第一个元素
+                            val = val[0] if isinstance(val[0], torch.Tensor) else torch.tensor(val[0])
+                    values.append(val)
+            
+            # 对values进行collate
+            if values:
+                try:
+                    if key in ['img', 'inputs']:
+                        # 对图像数据进行特殊处理，确保尺寸一致
+                        tensor_values = []
+                        target_size = None
+                        
+                        for val in values:
+                            if isinstance(val, torch.Tensor):
+                                if target_size is None:
+                                    target_size = val.shape[-2:]  # 取H, W
+                                
+                                # 如果尺寸不匹配，进行resize
+                                if val.shape[-2:] != target_size:
+                                    # 简单的resize到目标尺寸
+                                    import torch.nn.functional as F
+                                    val = F.interpolate(val.unsqueeze(0), size=target_size, mode='bilinear', align_corners=False).squeeze(0)
+                                
+                                tensor_values.append(val)
+                        
+                        if tensor_values:
+                            collated_dict[key] = torch.stack(tensor_values)
+                    else:
+                        collated_dict[key] = default_collate(values)
+                except Exception as e:
+                    print(f"⚠️ Collate键 '{key}' 失败: {e}")
+                    # 如果collate失败，保持原始格式
+                    collated_dict[key] = values
+        
+        return collated_dict
+    else:
+        # 使用默认的collate函数处理处理后的数据
+        try:
+            return default_collate(processed_batch)
+        except Exception as e:
+            print(f"⚠️ Collate失败: {e}")
+            # 如果还是失败，返回原始batch
+            return processed_batch
 
 def build_model_and_dataset(cfg, device_name):
     """构建模型和数据集"""
@@ -305,11 +363,49 @@ def main():
                     data_iter = iter(train_dataloader)
                     batch = next(data_iter)
                 
-                # 将数据移到设备上
+                # 将数据移到设备上并确保格式正确
                 if isinstance(batch, dict):
+                    # 处理字典格式的batch
+                    processed_batch = {}
                     for key in batch:
                         if isinstance(batch[key], torch.Tensor):
-                            batch[key] = batch[key].to(device_name)
+                            processed_batch[key] = batch[key].to(device_name)
+                        else:
+                            processed_batch[key] = batch[key]
+                    
+                    # 确保模型输入格式正确
+                    if 'img' in processed_batch:
+                        # 使用'img'作为模型输入
+                        model_input = processed_batch['img']
+                    elif 'inputs' in processed_batch:
+                        # 使用'inputs'作为模型输入
+                        model_input = processed_batch['inputs']
+                    else:
+                        # 如果没有标准键，尝试找到tensor类型的值
+                        tensor_values = [v for v in processed_batch.values() if isinstance(v, torch.Tensor)]
+                        if tensor_values:
+                            model_input = tensor_values[0]  # 使用第一个tensor
+                        else:
+                            print(f"⚠️ 无法找到有效的模型输入，batch keys: {list(processed_batch.keys())}")
+                            continue
+                    
+                    # 确保输入是4维tensor (B, C, H, W)
+                    if isinstance(model_input, torch.Tensor):
+                        if model_input.dim() == 3:
+                            model_input = model_input.unsqueeze(0)  # 添加batch维度
+                        elif model_input.dim() != 4:
+                            print(f"⚠️ 输入tensor维度错误: {model_input.dim()}, shape: {model_input.shape}")
+                            continue
+                    else:
+                        print(f"⚠️ 模型输入不是tensor: {type(model_input)}")
+                        continue
+                        
+                    batch = model_input
+                elif isinstance(batch, torch.Tensor):
+                    batch = batch.to(device_name)
+                else:
+                    print(f"⚠️ 未知的batch类型: {type(batch)}")
+                    continue
                 
                 # 前向传播 - 使用engine对象（与成功demo相同）
                 engine.zero_grad()
