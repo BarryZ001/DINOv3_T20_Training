@@ -148,11 +148,13 @@ def build_model_and_dataset(cfg, device_name):
     # 设置设备
     if device_name.startswith('xla'):
         device = torch_gcu.device(device_name)
+        # 对于GCU设备，直接使用device_name字符串
+        model = model.to(device_name)
     else:
         device = torch.device(device_name)
+        model = model.to(device)
     
-    model = model.to(device)
-    print(f"✅ 模型已移动到设备: {device}")
+    print(f"✅ 模型已移动到设备: {device_name}")
     
     return model, train_dataset, val_dataset
 
