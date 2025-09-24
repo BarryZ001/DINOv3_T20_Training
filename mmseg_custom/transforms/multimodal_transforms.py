@@ -332,7 +332,8 @@ class PackSegInputs:
     """Pack the inputs data for the semantic segmentation.
     
     This transform packs the image and ground truth segmentation map into
-    a format that can be consumed by the model.
+    a format that can be consumed by the model. It returns the data in the
+    standard MMEngine format expected by pseudo_collate.
     """
     
     def __init__(self, meta_keys=('img_path', 'seg_map_path', 'ori_shape', 
@@ -344,7 +345,7 @@ class PackSegInputs:
             meta_keys (tuple): Keys to be packed into meta information.
         """
         self.meta_keys = meta_keys
-        
+
     def __call__(self, results):
         """Pack the inputs data.
         
@@ -352,52 +353,39 @@ class PackSegInputs:
             results (dict): Result dict from loading pipeline.
             
         Returns:
-            dict: Packed results with 'inputs' and 'data_samples' keys.
+            dict: Results with 'img' and 'gt_semantic_seg' keys for compatibility.
         """
-        packed_results = {}
+        # 保持原始的数据结构，让MMEngine的标准流程处理
+        # 这样可以确保与pseudo_collate兼容
         
-        # Pack image
+        # 确保图像格式正确
         if 'img' in results:
             img = results['img']
-            # Ensure image is in CHW format
-            if len(img.shape) == 3 and img.shape[-1] in [1, 3]:
-                # HWC to CHW
-                img = np.transpose(img, (2, 0, 1))
-            packed_results['inputs'] = img
+            # 确保图像是HWC格式的numpy数组
+            if len(img.shape) == 3 and img.shape[0] in [1, 3]:
+                # 如果是CHW格式，转换为HWC
+                img = np.transpose(img, (1, 2, 0))
+            results['img'] = img
             
-        # Pack segmentation map
+        # 确保分割图格式正确
         if 'gt_seg_map' in results:
-            # Create a simple data structure for segmentation
             gt_seg_map = results['gt_seg_map']
-            if len(gt_seg_map.shape) == 2:
-                gt_seg_map = gt_seg_map[None, ...]  # Add channel dimension
+            # 确保分割图是2D的
+            if len(gt_seg_map.shape) == 3:
+                gt_seg_map = gt_seg_map.squeeze()
+            results['gt_semantic_seg'] = gt_seg_map
             
-            # Create a minimal data sample structure
-            data_sample = {
-                'gt_sem_seg': {
-                    'data': gt_seg_map
-                }
-            }
+        # 添加必要的字段
+        if 'seg_fields' not in results:
+            results['seg_fields'] = []
+        if 'gt_semantic_seg' in results and 'gt_semantic_seg' not in results['seg_fields']:
+            results['seg_fields'].append('gt_semantic_seg')
             
-            # Pack meta information
-            img_meta = {}
-            for key in self.meta_keys:
-                if key in results:
-                    img_meta[key] = results[key]
-            data_sample['metainfo'] = img_meta
+        # 确保img_fields存在
+        if 'img_fields' not in results:
+            results['img_fields'] = ['img']
             
-            packed_results['data_samples'] = data_sample
-        else:
-            # Pack meta info even without segmentation map
-            img_meta = {}
-            for key in self.meta_keys:
-                if key in results:
-                    img_meta[key] = results[key]
-            
-            data_sample = {'metainfo': img_meta}
-            packed_results['data_samples'] = data_sample
-            
-        return packed_results
+        return results
 
 
 @TRANSFORMS.register_module()
