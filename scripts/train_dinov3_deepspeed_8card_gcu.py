@@ -269,39 +269,73 @@ def main():
         print(f"Batch size: {len(batch['data_samples'])}")
         has_labels_count = 0
         
-        for j, sample in enumerate(batch['data_samples']):
-            print(f"  样本 #{j}:")
-            print(f"    类型: {type(sample)}")
-            print(f"    属性: {dir(sample) if hasattr(sample, '__dict__') else 'N/A'}")
-            
-            if hasattr(sample, 'gt_sem_seg'):
-                if sample.gt_sem_seg is not None:
-                    has_labels_count += 1
-                    if hasattr(sample.gt_sem_seg, 'data'):
-                        print(f"    ✅ 包含标签, 形状: {sample.gt_sem_seg.data.shape}")
-                    else:
-                        print(f"    ✅ 包含标签, 类型: {type(sample.gt_sem_seg)}")
-                else:
-                    print(f"    ⚠️ gt_sem_seg 为 None")
-            else:
-                print(f"    ❌ 缺少 gt_sem_seg 属性")
-                
-            # 检查其他可能的标签字段
-            if hasattr(sample, 'gt_semantic_seg'):
-                print(f"    发现 gt_semantic_seg: {type(sample.gt_semantic_seg)}")
-            
-            # 打印样本的所有属性
-            if hasattr(sample, '__dict__'):
-                print(f"    所有属性: {list(sample.__dict__.keys())}")
+        # 首先检查 data_samples 的类型和结构
+        data_samples = batch['data_samples']
+        print(f"  data_samples 类型: {type(data_samples)}")
+        print(f"  data_samples 内容: {data_samples}")
         
-        print(f"批次 #{i} 中有效标签数量: {has_labels_count}/{len(batch['data_samples'])}")
+        # 如果 data_samples 是字符串或其他非可迭代类型，跳过处理
+        if isinstance(data_samples, str):
+            print(f"  ❌ data_samples 是字符串，无法迭代: {data_samples}")
+            continue
+        elif not hasattr(data_samples, '__iter__'):
+            print(f"  ❌ data_samples 不可迭代: {type(data_samples)}")
+            continue
+        
+        # 尝试获取长度
+        try:
+            samples_length = len(data_samples)
+            print(f"  data_samples 长度: {samples_length}")
+        except:
+            print(f"  ❌ 无法获取 data_samples 长度")
+            continue
+        
+        # 如果是空的，跳过
+        if samples_length == 0:
+            print(f"  ⚠️ data_samples 为空")
+            continue
+        
+        # 尝试迭代处理样本
+        try:
+            for j, sample in enumerate(data_samples):
+                print(f"  样本 #{j}:")
+                print(f"    类型: {type(sample)}")
+                print(f"    属性: {dir(sample) if hasattr(sample, '__dict__') else 'N/A'}")
+                
+                if hasattr(sample, 'gt_sem_seg'):
+                    if sample.gt_sem_seg is not None:
+                        has_labels_count += 1
+                        if hasattr(sample.gt_sem_seg, 'data'):
+                            print(f"    ✅ 包含标签, 形状: {sample.gt_sem_seg.data.shape}")
+                        else:
+                            print(f"    ✅ 包含标签, 类型: {type(sample.gt_sem_seg)}")
+                    else:
+                        print(f"    ⚠️ gt_sem_seg 为 None")
+                else:
+                    print(f"    ❌ 缺少 gt_sem_seg 属性")
+                    
+                # 检查其他可能的标签字段
+                if hasattr(sample, 'gt_semantic_seg'):
+                    print(f"    发现 gt_semantic_seg: {type(sample.gt_semantic_seg)}")
+                
+                # 打印样本的所有属性
+                if hasattr(sample, '__dict__'):
+                    print(f"    所有属性: {list(sample.__dict__.keys())}")
+        except Exception as e:
+            print(f"  ❌ 迭代 data_samples 时出错: {e}")
+            continue
+        
+        print(f"批次 #{i} 中有效标签数量: {has_labels_count}/{samples_length}")
         
         if has_labels_count == 0:
             print(f"❌❌❌ 致命错误: Batch #{i} 中所有样本都缺少有效标签！这就是导致 torch.stack 失败的原因。")
             print("让我们检查第一个样本的详细信息:")
-            if len(batch['data_samples']) > 0:
-                sample = batch['data_samples'][0]
-                print(f"样本详细信息: {sample}")
+            try:
+                if samples_length > 0:
+                    sample = data_samples[0]
+                    print(f"样本详细信息: {sample}")
+            except Exception as e:
+                print(f"❌ 访问第一个样本时出错: {e}")
         
         if i >= 3:  # 只检查前几个批次
             break
