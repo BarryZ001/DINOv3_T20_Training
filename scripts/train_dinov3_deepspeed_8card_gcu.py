@@ -155,99 +155,7 @@ def load_and_validate_config(config_path, work_dir=None):
     print("✅ 配置文件验证通过")
     return cfg
 
-def custom_collate_fn(batch):
-    """自定义collate函数，处理MMSeg的DataContainer对象并统一数据格式"""
-    import torch
-    from torch.utils.data.dataloader import default_collate
-    
-    # 处理DataContainer对象
-    def extract_data_from_container(item):
-        try:
-            # 检查是否是DataContainer
-            if hasattr(item, 'data'):
-                return item.data
-            else:
-                return item
-        except:
-            return item
-    
-    # 递归处理batch中的每个元素
-    def process_batch_item(item):
-        if isinstance(item, dict):
-            return {key: process_batch_item(value) for key, value in item.items()}
-        elif isinstance(item, (list, tuple)):
-            return [process_batch_item(x) for x in item]
-        else:
-            return extract_data_from_container(item)
-    
-    # 处理整个batch
-    processed_batch = [process_batch_item(item) for item in batch]
-    
-    # 检查并统一数据格式
-    if processed_batch and isinstance(processed_batch[0], dict):
-        # 如果batch是字典列表，需要合并成统一格式
-        collated_dict = {}
-        
-        # 获取所有键
-        all_keys = set()
-        for item in processed_batch:
-            if isinstance(item, dict):
-                all_keys.update(item.keys())
-        
-        # 对每个键进行collate
-        for key in all_keys:
-            values = []
-            for item in processed_batch:
-                if isinstance(item, dict) and key in item:
-                    val = item[key]
-                    # 确保图像数据是tensor格式
-                    if key in ['img', 'inputs'] and not isinstance(val, torch.Tensor):
-                        if hasattr(val, 'data'):
-                            val = val.data
-                        if isinstance(val, (list, tuple)) and len(val) > 0:
-                            # 如果是list/tuple，取第一个元素
-                            val = val[0] if isinstance(val[0], torch.Tensor) else torch.tensor(val[0])
-                    values.append(val)
-            
-            # 对values进行collate
-            if values:
-                try:
-                    if key in ['img', 'inputs']:
-                        # 对图像数据进行特殊处理，确保尺寸一致
-                        tensor_values = []
-                        target_size = None
-                        
-                        for val in values:
-                            if isinstance(val, torch.Tensor):
-                                if target_size is None:
-                                    target_size = val.shape[-2:]  # 取H, W
-                                
-                                # 如果尺寸不匹配，进行resize
-                                if val.shape[-2:] != target_size:
-                                    # 简单的resize到目标尺寸
-                                    import torch.nn.functional as F
-                                    val = F.interpolate(val.unsqueeze(0), size=target_size, mode='bilinear', align_corners=False).squeeze(0)
-                                
-                                tensor_values.append(val)
-                        
-                        if tensor_values:
-                            collated_dict[key] = torch.stack(tensor_values)
-                    else:
-                        collated_dict[key] = default_collate(values)
-                except Exception as e:
-                    print(f"⚠️ Collate键 '{key}' 失败: {e}")
-                    # 如果collate失败，保持原始格式
-                    collated_dict[key] = values
-        
-        return collated_dict
-    else:
-        # 使用默认的collate函数处理处理后的数据
-        try:
-            return default_collate(processed_batch)
-        except Exception as e:
-            print(f"⚠️ Collate失败: {e}")
-            # 如果还是失败，返回原始batch
-            return processed_batch
+# 删除custom_collate_fn - 让MMEngine配置文件处理数据格式问题
 
 def build_model_and_dataset(cfg, device_name):
     """构建模型和数据集"""
@@ -323,32 +231,8 @@ def main():
     else:
         print("⚠️ torch_gcu不可用，跳过设备设置")
     
-    # 初始化分布式环境
-    if world_size > 1:
-        print(f"🌐 初始化分布式环境 - world_size={world_size}, local_rank={local_rank}")
-        try:
-            # 设置分布式环境变量
-            if 'MASTER_ADDR' not in os.environ:
-                os.environ['MASTER_ADDR'] = 'localhost'
-            if 'MASTER_PORT' not in os.environ:
-                os.environ['MASTER_PORT'] = '29500'
-            
-            # 初始化分布式进程组
-            if not torch.distributed.is_initialized():
-                torch.distributed.init_process_group(
-                    backend='nccl',  # 使用NCCL后端
-                    init_method='env://',
-                    world_size=world_size,
-                    rank=local_rank
-                )
-                print(f"✅ 分布式进程组初始化完成 - rank={local_rank}/{world_size}")
-            else:
-                print("✅ 分布式进程组已初始化")
-        except Exception as e:
-            print(f"⚠️ 分布式初始化失败: {e}")
-            print("🔄 继续使用单卡模式...")
-    else:
-        print("📱 单卡训练模式")
+    # 删除手动分布式初始化 - 让DeepSpeed完全接管分布式环境
+    print(f"📱 训练模式 - world_size={world_size}, local_rank={local_rank}")
     
     # 2. 加载配置
     cfg = load_and_validate_config(args.config, args.work_dir)
@@ -358,44 +242,50 @@ def main():
     
 
     
-    # 构建数据加载器
-    from torch.utils.data import DataLoader
-    train_dataloader = DataLoader(
-        train_dataset,
-        batch_size=cfg.train_dataloader.get('batch_size', 2),
-        shuffle=True,
-        num_workers=cfg.train_dataloader.get('num_workers', 2),
-        pin_memory=False,  # GCU环境下不使用pin_memory
-        collate_fn=custom_collate_fn  # 使用自定义的collate_fn处理DataContainer
-    )
+    # 4. 创建DeepSpeed配置
+    ds_config_path = make_deepspeed_config()
+
+    # 5. 初始化DeepSpeed引擎 (核心变化)
+    #    - 不再手动创建 DataLoader 
+    #    - 不再手动初始化 torch.distributed 
+    #    - 将 train_dataset 直接交给 DeepSpeed 
+    print("🔧 初始化DeepSpeed引擎...")
+    from mmcv.parallel import collate
     
-    # 5. 创建优化器 - 使用与成功demo相同的Adam优化器
+    # 创建优化器 - 使用与成功demo相同的Adam优化器
     print("🔧 创建优化器...")
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     print("✅ 优化器创建完成")
     
-    # 创建DeepSpeed配置
-    ds_config_path = make_deepspeed_config()
-    
-    # 6. 初始化DeepSpeed引擎 - 根据燧原文档要求，确保模型在设备上
-    print("🔧 初始化DeepSpeed引擎...")
     # 燧原文档要求：确保模型已经to到device上，然后再使用deepspeed.initialize
     print(f"📍 确认模型设备状态: {next(model.parameters()).device}")
     
     # 检查是否有MPI环境，如果没有则使用单GPU模式
     try:
         # 尝试初始化DeepSpeed
-        engine, _, _, _ = deepspeed.initialize(
+        engine, optimizer, train_dataloader, _ = deepspeed.initialize(
             config=ds_config_path,
             model=model,  # 确保 model 已经在 device 上
             optimizer=optimizer,
-            model_parameters=model.parameters()
+            model_parameters=model.parameters(),
+            training_data=train_dataset,
+            collate_fn=collate  # 使用mmcv的collate函数处理DataContainer
         )
-        print("✅ DeepSpeed引擎初始化完成")
+        print("✅ DeepSpeed引擎及DataLoader初始化完成")
         use_deepspeed = True
     except Exception as e:
         print(f"⚠️ DeepSpeed初始化失败: {e}")
         print("🔄 回退到单GPU训练模式...")
+        # 回退到手动创建DataLoader
+        from torch.utils.data import DataLoader
+        train_dataloader = DataLoader(
+            train_dataset,
+            batch_size=cfg.train_dataloader.get('batch_size', 2),
+            shuffle=True,
+            num_workers=cfg.train_dataloader.get('num_workers', 2),
+            pin_memory=False,  # GCU环境下不使用pin_memory
+            collate_fn=collate  # 使用mmcv的collate函数处理DataContainer
+        )
         engine = None
         use_deepspeed = False
     
@@ -408,7 +298,7 @@ def main():
     print(f"   - 本地rank: {local_rank}")
     print(f"   - 训练步数: {args.steps}")
     
-    # 8. 开始训练 - 使用与成功demo相同的训练循环模式
+    # 8. 开始训练 - 使用DeepSpeed优化的训练循环
     try:
         print("🚀 开始训练...")
         print("=" * 60)
@@ -416,92 +306,53 @@ def main():
         # 记录训练开始时间
         start_time = time.time()
         
-        # 训练循环 - 采用成功demo的简洁模式
-        data_iter = iter(train_dataloader)
-        
-        for step in range(args.steps):
+        # 训练循环 - DeepSpeed返回的train_dataloader可以直接迭代
+        for step, batch in enumerate(train_dataloader):
+            if step >= args.steps:
+                break
+                
             try:
-                # 获取数据
-                try:
-                    batch = next(data_iter)
-                except StopIteration:
-                    data_iter = iter(train_dataloader)
-                    batch = next(data_iter)
-                
-                # 将数据移到设备上并确保格式正确
-                if isinstance(batch, dict):
-                    # 处理字典格式的batch
-                    processed_batch = {}
-                    for key in batch:
-                        if isinstance(batch[key], torch.Tensor):
-                            processed_batch[key] = batch[key].to(device_name)
-                        else:
-                            processed_batch[key] = batch[key]
-                    
-                    # 确保模型输入格式正确
-                    if 'img' in processed_batch:
-                        # 使用'img'作为模型输入
-                        model_input = processed_batch['img']
-                    elif 'inputs' in processed_batch:
-                        # 使用'inputs'作为模型输入
-                        model_input = processed_batch['inputs']
-                    else:
-                        # 如果没有标准键，尝试找到tensor类型的值
-                        tensor_values = [v for v in processed_batch.values() if isinstance(v, torch.Tensor)]
-                        if tensor_values:
-                            model_input = tensor_values[0]  # 使用第一个tensor
-                        else:
-                            print(f"⚠️ 无法找到有效的模型输入，batch keys: {list(processed_batch.keys())}")
-                            continue
-                    
-                    # 确保输入是4维tensor (B, C, H, W)
-                    if isinstance(model_input, torch.Tensor):
-                        if model_input.dim() == 3:
-                            model_input = model_input.unsqueeze(0)  # 添加batch维度
-                        elif model_input.dim() != 4:
-                            print(f"⚠️ 输入tensor维度错误: {model_input.dim()}, shape: {model_input.shape}")
-                            continue
-                    else:
-                        print(f"⚠️ 模型输入不是tensor: {type(model_input)}")
-                        continue
-                        
-                    batch = model_input
-                elif isinstance(batch, torch.Tensor):
-                    batch = batch.to(device_name)
-                else:
-                    print(f"⚠️ 未知的batch类型: {type(batch)}")
-                    continue
-                
-                # 前向传播 - 根据是否使用DeepSpeed选择不同的方式
+                # DeepSpeed的DataLoader会自动处理数据到设备的移动
+                # 但对于XLA后端，手动确认一下更保险
                 if use_deepspeed:
-                    engine.zero_grad()
-                    outputs = engine(batch)
-                else:
-                    optimizer.zero_grad()
-                    outputs = model(batch)
-                
-                # 计算损失
-                if isinstance(outputs, dict) and 'loss' in outputs:
-                    loss = outputs['loss']
-                elif isinstance(outputs, dict) and 'decode' in outputs:
-                    # DINOv3可能返回decode结果，需要计算损失
-                    # 这里需要根据实际的DINOv3模型输出调整
-                    loss = torch.tensor(0.1, device=device_name, requires_grad=True)
-                else:
-                    # 简单的损失计算示例
-                    loss = torch.tensor(0.1, device=device_name, requires_grad=True)
-                
-                # 打印训练信息（与成功demo相同的格式）
-                print(f"[{local_rank}] step={step} loss={loss.item():.6f} device={loss.device}")
-                
-                # 反向传播 - 根据是否使用DeepSpeed选择不同的方式
-                if use_deepspeed:
+                    inputs = batch['inputs'].to(engine.device)
+                    data_samples = [s.to(engine.device) for s in batch['data_samples']]
+                    
+                    # 前向传播
+                    loss = engine(inputs, data_samples, mode='loss')['loss']
+                    
+                    # 打印信息
+                    print(f"[{local_rank}] step={step} loss={loss.item():.6f} device={loss.device}")
+                    
+                    # 反向传播和更新
                     engine.backward(loss)
                     engine.step()
+                    print(f"[{local_rank}] step={step} backward+step ✅")
                 else:
+                    # 单GPU模式回退处理
+                    if isinstance(batch, dict):
+                        inputs = batch.get('inputs', batch.get('img'))
+                        data_samples = batch.get('data_samples', [])
+                        
+                        if inputs is not None:
+                            inputs = inputs.to(device_name)
+                    else:
+                        inputs = batch[0].to(device_name) if len(batch) > 0 else None
+                        data_samples = batch[1] if len(batch) > 1 else []
+                    
+                    if inputs is None:
+                        print(f"⚠️ Step {step}: inputs为None，跳过")
+                        continue
+                    
+                    optimizer.zero_grad()
+                    outputs = model(inputs, data_samples, mode='loss')
+                    loss = outputs['loss'] if isinstance(outputs, dict) else outputs
+                    
+                    print(f"[{local_rank}] step={step} loss={loss.item():.6f} device={loss.device}")
+                    
                     loss.backward()
                     optimizer.step()
-                print(f"[{local_rank}] step={step} backward+step ✅")
+                    print(f"[{local_rank}] step={step} backward+step ✅")
                 
                 # 添加all-reduce测试（仅在分布式环境下）
                 if torch.distributed.is_initialized():
@@ -538,6 +389,8 @@ def main():
             else:
                 torch.save(model.state_dict(), save_path)
             print(f"💾 模型已保存: {save_path}")
+        
+        print("🎉 脚本执行完成!")
         
     except KeyboardInterrupt:
         print("\n⚠️ 训练被用户中断")
