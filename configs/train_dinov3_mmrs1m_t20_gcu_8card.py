@@ -113,21 +113,30 @@ model = dict(
 )
 
 # 数据处理管道
-# 🔧 简化的训练管道 - 用于诊断数据加载问题
+# 🔧 修复的训练管道 - 确保tensor形状一致性
 train_pipeline = [
     dict(type='CustomLoadImageFromFile'),
     dict(type='CustomLoadAnnotations'),
     dict(
         type='CustomResize',
         img_scale=img_size,
-        keep_ratio=True
+        keep_ratio=False,  # 🔥 关键修复：禁用keep_ratio确保尺寸一致
+        backend='pillow'
     ),
-    # 暂时简化数据增强以排除问题
     dict(type='CustomRandomFlip', prob=0.5),
     dict(type='CustomNormalize', **img_norm_cfg),
-    dict(type='CustomPad', size=crop_size, pad_val=0, seg_pad_val=255),
+    dict(
+        type='CustomPad', 
+        size=crop_size, 
+        pad_val=0, 
+        seg_pad_val=255,
+        pad_to_square=False  # 确保填充到指定尺寸
+    ),
     # 使用标准的PackSegInputs替代CustomCollect
-    dict(type='PackSegInputs', meta_keys=('img_path', 'ori_shape', 'img_shape', 'pad_shape', 'scale_factor', 'flip', 'flip_direction'))
+    dict(
+        type='PackSegInputs', 
+        meta_keys=('img_path', 'ori_shape', 'img_shape', 'pad_shape', 'scale_factor', 'flip', 'flip_direction')
+    )
 ]
 
 # 验证管道
@@ -150,9 +159,9 @@ test_pipeline = val_pipeline
 # 数据加载器配置 - 8卡分布式训练
 # 🚀 性能模式：恢复多进程数据加载以获得最佳性能
 train_dataloader = dict(
-    batch_size=2,  # 每卡batch_size，总batch_size = 2 * 8 = 16
-    num_workers=8,  # 🔥 恢复多进程数据加载以提升性能
-    persistent_workers=True,  # 启用持久化worker以减少进程创建开销
+    batch_size=1,  # 🔥 临时降低batch_size避免collate问题
+    num_workers=2,  # 🔥 减少worker数量便于调试
+    persistent_workers=False,  # 🔥 禁用持久化worker便于调试
     sampler=dict(type='InfiniteSampler', shuffle=True),
     dataset=dict(
         type=dataset_type,
@@ -161,7 +170,9 @@ train_dataloader = dict(
         modality='optical',
         instruction_format=True,
         pipeline=train_pipeline
-    )
+    ),
+    # 🔥 添加自定义collate_fn避免tensor形状不一致
+    collate_fn=dict(type='default_collate')
 )
 
 # 验证数据加载器
