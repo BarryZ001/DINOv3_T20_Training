@@ -75,16 +75,8 @@ def build_components(cfg: Any, device_name: str) -> tuple:
     # 构建模型
     model = MODELS.build(cfg.model)
     
-    # 设置设备
-    if torch_gcu_available and torch_gcu is not None and device_name == 'gcu':
-        # 使用正确的torch_gcu API
-        device_id = torch_gcu.current_device()
-        device = f'gcu:{device_id}'
-        model = model.to(device)
-    else:
-        # 如果不是GCU环境，使用CPU
-        device = 'cpu'
-        model = model.to(device)
+    # 设置设备 - 直接使用device_name字符串，兼容MMEngine的.to()方法
+    model = model.to(device_name)
     
     return model, dataset
 
@@ -111,8 +103,12 @@ def main() -> None:
     # 加载配置
     cfg = Config.fromfile(args.config)
     
-    # 环境设置
-    device_name = 'gcu' if torch_gcu_available else 'cuda'
+    # 环境设置 - 使用xla设备格式以兼容MMEngine
+    if torch_gcu_available and torch_gcu is not None:
+        device_id = torch_gcu.current_device()
+        device_name = f'xla:{device_id}'
+    else:
+        device_name = 'cuda'
     
     # 构建组件
     model, dataset = build_components(cfg, device_name)
