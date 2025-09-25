@@ -200,10 +200,17 @@ def main() -> None:
             inputs = batch['inputs']
             data_samples = batch.get('data_samples', None)
             
-            # 确保 inputs 是 4D tensor
-            if hasattr(inputs, 'dim') and inputs.dim() == 3:
-                inputs = inputs.unsqueeze(0)  # 添加批次维度
-                print(f"⚠️ 警告：添加了批次维度，新形状: {inputs.shape}")
+            # 🔧 关键修复：确保 inputs 是正确的 4D tensor (B, C, H, W)
+            if isinstance(inputs, list):
+                print(f"[DEBUG] inputs is list, stacking {len(inputs)} tensors...")
+                inputs = torch.stack(inputs, dim=0)
+                print(f"[DEBUG] after stacking: {inputs.shape}")
+            elif isinstance(inputs, torch.Tensor) and inputs.dim() == 3:
+                print("[DEBUG] single image tensor, unsqueezing batch dim...")
+                inputs = inputs.unsqueeze(0)
+                print(f"[DEBUG] after unsqueeze: {inputs.shape}")
+            
+            print(f"[DEBUG] final inputs shape: {inputs.shape}")
             
             # 调用模型的 forward 方法
             loss_dict = model_engine(inputs, data_samples, mode='loss')
