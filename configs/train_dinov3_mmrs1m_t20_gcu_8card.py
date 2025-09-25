@@ -132,10 +132,9 @@ train_pipeline = [
         seg_pad_val=255,
         pad_to_square=False  # 确保填充到指定尺寸
     ),
-    # 🔧 关键修复：添加tensor转换步骤，解决 "Expected torch.Tensor, got numpy.ndarray" 错误
-    # 确保图像数据在传递给模型之前被转换为PyTorch tensor
-    dict(type='CustomImageToTensor', keys=['img']),
-    # 使用标准的PackSegInputs替代CustomCollect
+    # 🔧 关键修复：让PackSegInputs处理tensor转换和维度重排
+    # PackSegInputs会正确地将HWC格式的NumPy数组转换为BCHW格式的PyTorch tensor
+    # 这解决了 "Expected 4D tensor (B, C, H, W), got 3D tensor" 错误
     dict(
         type='PackSegInputs', 
         meta_keys=('img_path', 'ori_shape', 'img_shape', 'pad_shape', 'scale_factor', 'flip', 'flip_direction')
