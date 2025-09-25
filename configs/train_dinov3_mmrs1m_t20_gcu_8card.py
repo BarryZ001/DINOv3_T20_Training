@@ -132,6 +132,9 @@ train_pipeline = [
         seg_pad_val=255,
         pad_to_square=False  # 确保填充到指定尺寸
     ),
+    # 🔧 关键修复：添加tensor转换步骤，解决 "Expected torch.Tensor, got numpy.ndarray" 错误
+    # 确保图像数据在传递给模型之前被转换为PyTorch tensor
+    dict(type='CustomImageToTensor', keys=['img']),
     # 使用标准的PackSegInputs替代CustomCollect
     dict(
         type='PackSegInputs', 
