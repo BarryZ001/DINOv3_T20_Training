@@ -353,16 +353,28 @@ class PackSegInputs:
             results (dict): Result dict from loading pipeline.
             
         Returns:
-            dict: Results with 'img' and 'gt_semantic_seg' keys for compatibility.
+            dict: Results with 'inputs' key in standard MMEngine format.
         """
-        # 保持原始的数据结构，让MMEngine的标准流程处理
-        # 这样可以确保与pseudo_collate兼容
+        import torch
         
-        # 保持图像格式不变 - 让CustomImageToTensor的CHW格式保持
-        # 不再强制转换为HWC，因为CustomImageToTensor已经正确处理了格式
+        # 🔥 关键修复：创建标准的 'inputs' 键
         if 'img' in results:
             img = results['img']
-            # 保持tensor格式不变，让DataLoader处理批次维度
+            
+            # 确保图像是torch.Tensor格式
+            if isinstance(img, np.ndarray):
+                # 转换numpy数组为torch tensor
+                img = torch.from_numpy(img.copy()).float()
+                
+            # 确保图像是CHW格式
+            if len(img.shape) == 3:
+                # 如果是HWC格式，转换为CHW
+                if img.shape[2] == 3:  # HWC
+                    img = img.permute(2, 0, 1)  # 转换为CHW
+                    
+            # 创建标准的 'inputs' 键供模型使用
+            results['inputs'] = img
+            # 保留原始的 'img' 键以兼容其他组件
             results['img'] = img
             
         # 确保分割图格式正确
