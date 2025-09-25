@@ -15,6 +15,14 @@ from typing import Optional, Any
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+# 🔧 强制禁用混合精度训练 - 解决 free(): invalid pointer 错误
+# 必须在导入torch之前设置这些环境变量
+os.environ.setdefault('GCU_DISABLE_AMP', '1')        # 禁用GCU自动混合精度
+os.environ.setdefault('GCU_FORCE_FP32', '1')         # 强制GCU使用float32
+os.environ.setdefault('TORCH_GCU_DISABLE_AMP', '1')  # 禁用PyTorch GCU混合精度
+os.environ.setdefault('TORCH_DISABLE_AMP', '1')      # 禁用PyTorch自动混合精度
+os.environ.setdefault('DEEPSPEED_DISABLE_FP16', '1') # 禁用DeepSpeed混合精度
+
 # 🔧 GCU 内存分配优化 - 解决 invalid pointer 错误
 # 使用异步内存分配器，提高GCU设备的内存管理效率
 os.environ.setdefault('PYTORCH_GCU_ALLOC_CONF', 'backend:topsMallocAsync')
@@ -25,6 +33,9 @@ os.environ.setdefault('GCU_ENABLE_LAZY_INIT', '0')   # 禁用延迟初始化，�
 import torch
 import numpy as np
 from torch.utils.data.dataloader import default_collate
+
+# 🔧 强制设置默认数据类型为float32，确保所有张量都使用float32精度
+torch.set_default_dtype(torch.float32)
 
 # 条件导入模块，避免在开发环境中的导入错误
 torch_gcu_available = False
