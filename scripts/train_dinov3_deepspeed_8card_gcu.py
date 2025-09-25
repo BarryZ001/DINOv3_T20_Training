@@ -295,6 +295,35 @@ def main() -> None:
             inputs = batch['inputs']
             data_samples = batch.get('data_samples', None)
             
+            # 🔧 关键修复：如果data_samples为None，从gt_semantic_seg构建data_samples
+            if data_samples is None and 'gt_semantic_seg' in batch:
+                print("[DEBUG] data_samples is None, constructing from gt_semantic_seg...")
+                gt_semantic_seg = batch['gt_semantic_seg']
+                batch_size = inputs.size(0) if hasattr(inputs, 'size') else len(inputs)
+                
+                # 构建标准的data_samples列表
+                data_samples = []
+                for i in range(batch_size):
+                    # 创建单个样本的data_sample字典
+                    if hasattr(gt_semantic_seg, 'size') and gt_semantic_seg.dim() >= 3:
+                        # gt_semantic_seg是tensor，提取第i个样本
+                        gt_seg_i = gt_semantic_seg[i] if gt_semantic_seg.size(0) > i else gt_semantic_seg[0]
+                    else:
+                        # 处理其他格式
+                        gt_seg_i = gt_semantic_seg
+                    
+                    # 构建符合MMSeg期望的data_sample格式
+                    data_sample = {
+                        'gt_sem_seg': {
+                            'data': gt_seg_i
+                        }
+                    }
+                    data_samples.append(data_sample)
+                
+                print(f"[DEBUG] Constructed {len(data_samples)} data_samples from gt_semantic_seg")
+                # 更新batch以包含构建的data_samples
+                batch['data_samples'] = data_samples
+            
             # 🔧 关键修复：确保 inputs 是正确的 4D tensor (B, C, H, W)
         if isinstance(inputs, list):
             print(f"[DEBUG] inputs is list, stacking {len(inputs)} tensors...")
