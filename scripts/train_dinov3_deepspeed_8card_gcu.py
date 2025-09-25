@@ -219,6 +219,23 @@ def main() -> None:
             print(f"[DEBUG] inputs moved to device: {device}, dtype: {dtype}")
             print(f"[DEBUG] final inputs shape: {inputs.shape}")
             
+            # 🔧 处理 batch 中的 gt_semantic_seg（如果存在）
+            # 标签通常是整型索引，使用 torch.long
+            if 'gt_semantic_seg' in batch:
+                gt_seg = batch['gt_semantic_seg']
+                print(f"[DEBUG] gt_semantic_seg type: {type(gt_seg)}")
+                
+                if isinstance(gt_seg, list):
+                    print(f"[DEBUG] gt_semantic_seg is list, len={len(gt_seg)}")
+                    print(f"[DEBUG] gt_semantic_seg element types: {[type(x) for x in gt_seg]}")
+                    # 堆叠列表中的张量
+                    batch['gt_semantic_seg'] = torch.stack(gt_seg).to(device=device, dtype=torch.long)
+                    print(f"[DEBUG] after stacking gt_semantic_seg: {batch['gt_semantic_seg'].shape}")
+                else:
+                    # 单个张量直接转换
+                    batch['gt_semantic_seg'] = gt_seg.to(device=device, dtype=torch.long)
+                    print(f"[DEBUG] gt_semantic_seg moved to device: {device}, dtype: torch.long")
+            
             # 🔧 将监督信号也转移到相同设备
             if data_samples is not None:
                 for i, sample in enumerate(data_samples):
@@ -226,12 +243,6 @@ def main() -> None:
                         if hasattr(sample.gt_sem_seg, 'data'):
                             sample.gt_sem_seg.data = sample.gt_sem_seg.data.to(device=device)
                             print(f"[DEBUG] gt_sem_seg[{i}] moved to device: {device}")
-            
-            # 处理 batch 中的 gt_semantic_seg（如果存在）
-            # 标签通常是整型索引，使用 torch.long
-            if 'gt_semantic_seg' in batch:
-                batch['gt_semantic_seg'] = batch['gt_semantic_seg'].to(device=device, dtype=torch.long)
-                print(f"[DEBUG] batch gt_semantic_seg moved to device: {device}, dtype: torch.long")
             
             # 调用模型的 forward 方法
             loss_dict = model_engine(inputs, data_samples, mode='loss')
