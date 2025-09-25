@@ -305,14 +305,9 @@ deepspeed_config = dict(
         }
     },
     
-    fp16={
-        "enabled": True,
-        "loss_scale": 0,
-        "loss_scale_window": 1000,
-        "initial_scale_power": 16,
-        "hysteresis": 2,
-        "min_loss_scale": 1
-    },
+    # fp16 配置已完全移除，强制使用 float32 精度
+    # 这样可以避免 DeepSpeed 在 GCU 环境下创建 torch.float16 优化器
+    # 从而解决 "incompatible tensor type" 错误
     
     zero_optimization={
         "stage": 2,
