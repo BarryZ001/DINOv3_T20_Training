@@ -341,9 +341,25 @@ def main() -> None:
         device = next(model_engine.parameters()).device
         dtype = next(model_engine.parameters()).dtype
         
-        inputs = inputs.to(device=device, dtype=dtype)
-        print(f"[DEBUG] inputs moved to device: {device}, dtype: {dtype}")
-        print(f"[DEBUG] final inputs shape: {inputs.shape}")
+        # 🔧 T20 内存安全修复：分步骤进行设备转换，避免内存指针错误
+        print(f"[DEBUG] Converting inputs to device: {device}, dtype: {dtype}")
+        print(f"[DEBUG] Original inputs device: {inputs.device}, dtype: {inputs.dtype}")
+        
+        # 先确保张量在 CPU 上且内存连续
+        if inputs.device != torch.device('cpu'):
+            inputs = inputs.cpu().contiguous()
+        
+        # 分步转换：先转换数据类型，再转换设备
+        if inputs.dtype != dtype:
+            inputs = inputs.to(dtype=dtype)
+            print(f"[DEBUG] Converted dtype to: {inputs.dtype}")
+        
+        # 最后转换设备，使用 non_blocking=False 确保同步转换
+        if inputs.device != device:
+            inputs = inputs.to(device=device, non_blocking=False)
+            print(f"[DEBUG] Converted device to: {inputs.device}")
+        
+        print(f"[DEBUG] final inputs shape: {inputs.shape}, device: {inputs.device}, dtype: {inputs.dtype}")
         
         # 🔧 处理 batch 中的 gt_semantic_seg（如果存在）
         if 'gt_semantic_seg' in batch:
@@ -397,15 +413,50 @@ def main() -> None:
                             padded_gts.append(t.long())
                     gt_tensors = padded_gts
                 
-                # 堆叠并移动到设备
-                batch['gt_semantic_seg'] = torch.stack(gt_tensors).to(device=device, dtype=torch.long)
-                print(f"[DEBUG] after stacking gt_semantic_seg: {batch['gt_semantic_seg'].shape}")
+                # 堆叠并移动到设备 - 🔧 T20 内存安全修复
+                print("[DEBUG] Stacking gt_semantic_seg tensors...")
+                stacked_gt = torch.stack(gt_tensors)
+                print(f"[DEBUG] Stacked gt_semantic_seg shape: {stacked_gt.shape}")
+                
+                # 分步转换到目标设备，避免内存指针错误
+                if stacked_gt.device != torch.device('cpu'):
+                    stacked_gt = stacked_gt.cpu().contiguous()
+                
+                # 先转换数据类型
+                if stacked_gt.dtype != torch.long:
+                    stacked_gt = stacked_gt.to(dtype=torch.long)
+                    print(f"[DEBUG] Converted gt_semantic_seg dtype to: {stacked_gt.dtype}")
+                
+                # 最后转换设备
+                if stacked_gt.device != device:
+                    stacked_gt = stacked_gt.to(device=device, non_blocking=False)
+                    print(f"[DEBUG] Converted gt_semantic_seg device to: {stacked_gt.device}")
+                
+                batch['gt_semantic_seg'] = stacked_gt
+                print(f"[DEBUG] Final gt_semantic_seg: shape={batch['gt_semantic_seg'].shape}, device={batch['gt_semantic_seg'].device}, dtype={batch['gt_semantic_seg'].dtype}")
             else:
-                # 单个张量或 numpy 数组
+                # 单个张量或 numpy 数组 - 🔧 T20 内存安全修复
+                print("[DEBUG] Processing single gt_semantic_seg...")
                 if isinstance(gt_seg, np.ndarray):
                     gt_seg = torch.from_numpy(gt_seg)
-                batch['gt_semantic_seg'] = gt_seg.to(device=device, dtype=torch.long)
-                print(f"[DEBUG] gt_semantic_seg moved to device: {device}, dtype: torch.long")
+                    print(f"[DEBUG] Converted numpy to tensor: {gt_seg.shape}")
+                
+                # 分步转换到目标设备，避免内存指针错误
+                if gt_seg.device != torch.device('cpu'):
+                    gt_seg = gt_seg.cpu().contiguous()
+                
+                # 先转换数据类型
+                if gt_seg.dtype != torch.long:
+                    gt_seg = gt_seg.to(dtype=torch.long)
+                    print(f"[DEBUG] Converted single gt_semantic_seg dtype to: {gt_seg.dtype}")
+                
+                # 最后转换设备
+                if gt_seg.device != device:
+                    gt_seg = gt_seg.to(device=device, non_blocking=False)
+                    print(f"[DEBUG] Converted single gt_semantic_seg device to: {gt_seg.device}")
+                
+                batch['gt_semantic_seg'] = gt_seg
+                print(f"[DEBUG] Final single gt_semantic_seg: shape={batch['gt_semantic_seg'].shape}, device={batch['gt_semantic_seg'].device}, dtype={batch['gt_semantic_seg'].dtype}")
             
             # 🔧 将监督信号也转移到相同设备
             if data_samples is not None:
