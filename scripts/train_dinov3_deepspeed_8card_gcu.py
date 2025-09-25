@@ -145,8 +145,12 @@ def main() -> None:
     # 这修复了 IndexError: list index out of range 错误，确保使用标准PyTorch优化器
     # 🔧 新增：通过环境变量和配置参数双重保障禁用FusedAdam
     print("🔧 正在初始化DeepSpeed，已禁用FusedAdam确保GCU兼容性...")
+    
+    # 🔧 关键修复：传递model_parameters确保DeepSpeed能正确识别优化器配置
+    # 这解决了DeepSpeed无法找到优化器参数导致的IndexError问题
     model_engine, optimizer, _, _ = deepspeed.initialize(
         model=model,
+        model_parameters=model.parameters(),  # 关键：提供模型参数给DeepSpeed
         config=deepspeed_config
     )
     
