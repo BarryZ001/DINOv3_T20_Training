@@ -23,8 +23,7 @@
     "stage": 0
   },
   "fp16": {
-    "enabled": true,
-    "initial_scale_power": 12
+    "enabled": false
   },
   "wall_clock_breakdown": true,
   "gradient_clipping": 1.0,

@@ -205,7 +205,7 @@ test_evaluator = val_evaluator
 
 # 优化器配置 (生产版 - 恢复高性能设置)
 optim_wrapper = dict(
-    type='AmpOptimWrapper',
+    type='OptimWrapper',  # 改为标准OptimWrapper，禁用混合精度
     optimizer=dict(
         type='AdamW',
         lr=1e-4,  # 恢复正常学习率
@@ -220,8 +220,8 @@ optim_wrapper = dict(
             '.pos_embed': dict(decay_mult=0.0),
         }
     ),
-    clip_grad=dict(max_norm=1.0, norm_type=2),
-    loss_scale='dynamic'
+    clip_grad=dict(max_norm=1.0, norm_type=2)
+    # 移除loss_scale配置，确保使用float32精度
 )
 
 # 学习率调度器 (生产版)
@@ -310,7 +310,11 @@ deepspeed_config = dict(
         }
     },
     
-    # fp16 配置已完全移除，强制使用 float32 精度
+    # 🔧 关键修复：完全禁用fp16，强制使用float32精度避免数据类型冲突
+    # 这解决了GCU驱动中16MB vs 8MB内存大小不匹配的问题
+    fp16=dict(
+        enabled=False  # 禁用混合精度，确保模型和数据都使用float32
+    ),
     # 这样可以避免 DeepSpeed 在 GCU 环境下创建 torch.float16 优化器
     # 从而解决 "incompatible tensor type" 错误
     
