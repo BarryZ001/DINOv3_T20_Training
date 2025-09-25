@@ -45,7 +45,7 @@ try:
         print(f"✅ 检测到 {device_count} 个GCU设备")
         
         for i in range(device_count):
-            device = f'gcu:{i}'
+            device = f'xla:{i}'  # 使用xla设备格式，与MMEngine兼容
             print(f"📊 GCU设备 {i}:")
             
             # 测试基本张量操作
