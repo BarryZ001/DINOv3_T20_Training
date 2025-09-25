@@ -132,9 +132,10 @@ train_pipeline = [
         seg_pad_val=255,
         pad_to_square=False  # 确保填充到指定尺寸
     ),
-    # 🔧 关键修复：让PackSegInputs处理tensor转换和维度重排
-    # PackSegInputs会正确地将HWC格式的NumPy数组转换为BCHW格式的PyTorch tensor
-    # 这解决了 "Expected 4D tensor (B, C, H, W), got 3D tensor" 错误
+    # 🔧 关键修复：添加ImageToTensor转换确保正确的维度重排
+    # 将HWC格式的NumPy数组转换为CHW格式的PyTorch tensor
+    dict(type='CustomImageToTensor', keys=['img']),
+    # PackSegInputs负责最终的数据打包，添加批次维度
     dict(
         type='PackSegInputs', 
         meta_keys=('img_path', 'ori_shape', 'img_shape', 'pad_shape', 'scale_factor', 'flip', 'flip_direction')
