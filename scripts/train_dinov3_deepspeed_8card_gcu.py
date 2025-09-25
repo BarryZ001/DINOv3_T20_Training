@@ -24,11 +24,13 @@ os.environ.setdefault('TORCH_DISABLE_AMP', '1')      # 禁用PyTorch自动混合
 os.environ.setdefault('DEEPSPEED_DISABLE_FP16', '1') # 禁用DeepSpeed混合精度
 
 # 🔧 GCU 内存分配优化 - 解决 invalid pointer 错误
-# 使用异步内存分配器，提高GCU设备的内存管理效率
-os.environ.setdefault('PYTORCH_GCU_ALLOC_CONF', 'backend:topsMallocAsync')
+# 使用更保守的内存分配策略，避免内存碎片和指针错误
+os.environ.setdefault('PYTORCH_GCU_ALLOC_CONF', 'max_split_size_mb:128,garbage_collection_threshold:0.6,expandable_segments:False')
 # 添加额外的 GCU 环境变量以提高稳定性
-os.environ.setdefault('GCU_MEMORY_FRACTION', '0.8')  # 限制内存使用，避免内存碎片
+os.environ.setdefault('GCU_MEMORY_FRACTION', '0.7')  # 进一步限制内存使用，避免内存碎片
 os.environ.setdefault('GCU_ENABLE_LAZY_INIT', '0')   # 禁用延迟初始化，确保确定性行为
+os.environ.setdefault('GCU_SYNC_ALLOC', '1')         # 启用同步内存分配，避免异步分配导致的指针错误
+os.environ.setdefault('GCU_DISABLE_CACHING', '1')    # 禁用内存缓存，强制每次都重新分配
 
 import torch
 import numpy as np
