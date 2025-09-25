@@ -16,8 +16,8 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 # 🔧 GCU 内存分配优化 - 解决 invalid pointer 错误
-# 使用更保守的内存分配策略，避免异步分配器的指针问题
-os.environ.setdefault('PYTORCH_GCU_ALLOC_CONF', 'backend:topsMalloc')
+# 使用异步内存分配器，提高GCU设备的内存管理效率
+os.environ.setdefault('PYTORCH_GCU_ALLOC_CONF', 'backend:topsMallocAsync')
 # 添加额外的 GCU 环境变量以提高稳定性
 os.environ.setdefault('GCU_MEMORY_FRACTION', '0.8')  # 限制内存使用，避免内存碎片
 os.environ.setdefault('GCU_ENABLE_LAZY_INIT', '0')   # 禁用延迟初始化，确保确定性行为
@@ -141,8 +141,8 @@ def main() -> None:
     os.environ['ENFLAME_UMD_FLAGS'] = 'mem_alloc_retry_times=1'
     os.environ['ECCL_RUNTIME_3_0_ENABLE'] = 'true'
     os.environ['ENFLAME_PT_EVALUATE_TENSOR_NEEDED'] = 'false'
-    # 🔧 关键修复：使用同步内存分配器，避免 invalid pointer 错误
-    os.environ['PYTORCH_GCU_ALLOC_CONF'] = 'backend:topsMalloc'  # 改为同步分配器
+    # 🔧 关键修复：使用异步内存分配器，避免 invalid pointer 错误
+    os.environ['PYTORCH_GCU_ALLOC_CONF'] = 'backend:topsMallocAsync'  # 改为异步分配器
     
     # 🚀 流水线并行配置 - 燧原官方推荐
     os.environ['TP_SIZE'] = '1'  # 张量并行大小设为1
