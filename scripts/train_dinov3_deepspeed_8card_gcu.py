@@ -156,18 +156,24 @@ def main() -> None:
         num_workers=4
     )
     
-    # 🔧 初始化DeepSpeed - 依赖配置文件中的优化器设置
-    # 不再手动创建优化器，避免与DeepSpeed的FusedAdam冲突
-    # 配置文件中已明确指定使用AdamW优化器，兼容GCU硬件
-    # 这修复了 IndexError: list index out of range 错误，确保使用标准PyTorch优化器
-    # 🔧 新增：通过环境变量和配置参数双重保障禁用FusedAdam
-    print("🔧 正在初始化DeepSpeed，已禁用FusedAdam确保GCU兼容性...")
+    # 🔧 初始化DeepSpeed - 手动创建优化器避免FusedAdam编译问题
+    # 这是解决 IndexError: list index out of range 的最终方案
+    # 通过手动创建标准PyTorch优化器，绕过DeepSpeed内部的CUDA特定代码路径
+    print("🔧 正在手动创建优化器，确保GCU兼容性...")
     
-    # 🔧 关键修复：传递model_parameters确保DeepSpeed能正确识别优化器配置
-    # 这解决了DeepSpeed无法找到优化器参数导致的IndexError问题
+    # 🔧 关键修正 (1/2): 从配置中获取优化器参数并手动创建
+    optimizer_params = deepspeed_config.get('optimizer', {}).get('params', {})
+    optimizer = torch.optim.AdamW(model.parameters(), **optimizer_params)
+    print(f"✅ 手动创建优化器成功: {type(optimizer).__name__}")
+    
+    print("🔧 正在初始化DeepSpeed，使用手动创建的优化器...")
+    
+    # 🔧 关键修正 (2/2): 将手动创建的optimizer实例传递给initialize函数
+    # 这避免了DeepSpeed内部尝试编译FusedAdam的问题
     model_engine, optimizer, _, _ = deepspeed.initialize(
         model=model,
         model_parameters=model.parameters(),  # 关键：提供模型参数给DeepSpeed
+        optimizer=optimizer,  # 🔧 关键：传入手动创建的优化器
         config=deepspeed_config
     )
     

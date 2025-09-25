@@ -90,8 +90,11 @@ try:
         model = SimpleModel()
         print("✅ 测试模型创建成功")
         
-        # 尝试初始化 DeepSpeed
-        print("🚀 尝试初始化 DeepSpeed...")
+        # 🔧 关键修正 (1/2): 在调用initialize之前，手动创建一个标准的PyTorch优化器
+        # 从DeepSpeed配置中获取优化器参数
+        optimizer_params = deepspeed_config.get('optimizer', {}).get('params', {})
+        optimizer = torch.optim.AdamW(model.parameters(), **optimizer_params)
+        print(f"✅ 手动创建优化器成功: {type(optimizer).__name__}")
         
         # 模拟单卡环境的批次大小验证
         world_size = 1  # 单卡测试
@@ -107,10 +110,14 @@ try:
         else:
             print("⚠️  批次大小配置不匹配，但这在多卡环境中可能是正常的")
         
-        # 尝试 DeepSpeed 初始化
+        # 🚀 尝试 DeepSpeed 初始化
+        print("🚀 尝试初始化 DeepSpeed...")
+        
+        # 🔧 关键修正 (2/2): 将手动创建的optimizer实例传递给initialize函数
         model_engine, optimizer, _, _ = deepspeed.initialize(
             model=model,
             model_parameters=model.parameters(),
+            optimizer=optimizer,  # <--- 将优化器实例传入
             config=deepspeed_config
         )
         
