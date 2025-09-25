@@ -113,27 +113,31 @@ model = dict(
 )
 
 # 数据处理管道
-# 🔧 修复的训练管道 - 确保tensor形状一致性
 train_pipeline = [
     dict(type='CustomLoadImageFromFile'),
     dict(type='CustomLoadAnnotations'),
+    
+    # --- 关键修正 1: 统一尺寸 ---
+    # 强制将所有图像和标签都缩放到一个固定的尺寸。
+    # `keep_ratio=False` 会直接拉伸/压缩到目标尺寸，确保所有输出尺寸一致。
     dict(
         type='CustomResize',
-        img_scale=img_size,
-        keep_ratio=False,  # 🔥 关键修复：禁用keep_ratio确保尺寸一致
-        backend='pillow'
+        scale=crop_size,  # crop_size 应该是 (512, 512)
+        keep_ratio=False
     ),
+    
     dict(type='CustomRandomFlip', prob=0.5),
     dict(type='CustomNormalize', **img_norm_cfg),
-    dict(
-        type='CustomPad', 
-        size=crop_size, 
-        pad_val=0, 
-        seg_pad_val=255,
-        pad_to_square=False  # 确保填充到指定尺寸
-    ),
-    # 🔥 关键修复：移除ImageToTensor，让PackSegInputs处理所有格式化
-    # PackSegInputs会自动处理numpy到tensor的转换并确保正确的批次维度
+    
+    # CustomPad 确保图像尺寸符合要求，如果Resize已经处理好，可以酌情保留或移除
+    dict(type='CustomPad', size=crop_size, pad_val=0, seg_pad_val=255),
+    
+    # --- 关键修正 2: 统一数据类型和格式 ---
+    # 移除所有旧的或自定义的ToTensor/Collect转换，只使用这一个。
+    # PackSegInputs 是 MMEngine 的标准做法，它会负责：
+    #   1. 将 'img' 和 'gt_semantic_seg' 从 NumPy 转换为 PyTorch Tensor。
+    #   2. 将 'img' 的维度从 (H, W, C) 转换为 (C, H, W)。
+    #   3. 将所有数据打包成模型期望的 `inputs` 和 `data_samples` 格式。
     dict(
         type='PackSegInputs', 
         meta_keys=('img_path', 'ori_shape', 'img_shape', 'pad_shape', 'scale_factor', 'flip', 'flip_direction')
@@ -146,19 +150,11 @@ val_pipeline = [
     dict(type='CustomLoadAnnotations'),
     dict(
         type='CustomResize',
-        img_scale=img_size,
-        keep_ratio=False,  # 🔥 关键修复：验证时也要禁用keep_ratio确保尺寸一致
-        backend='pillow'
+        scale=crop_size,  # 使用crop_size确保尺寸一致
+        keep_ratio=False  # 验证时也要禁用keep_ratio确保尺寸一致
     ),
     dict(type='CustomNormalize', **img_norm_cfg),
-    dict(
-        type='CustomPad', 
-        size=crop_size, 
-        pad_val=0, 
-        seg_pad_val=255,
-        pad_to_square=False  # 确保填充到指定尺寸
-    ),
-    # 使用标准的PackSegInputs替代CustomCollect
+    dict(type='CustomPad', size=crop_size, pad_val=0, seg_pad_val=255),
     dict(type='PackSegInputs', meta_keys=('img_path', 'ori_shape', 'img_shape', 'pad_shape', 'scale_factor'))
 ]
 

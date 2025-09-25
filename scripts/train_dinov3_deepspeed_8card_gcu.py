@@ -289,99 +289,24 @@ def main() -> None:
     
     print("训练开始...")
     
-    # 🔥 修复的训练循环 - 正确处理批次数据格式
+    # --- 简化后的训练循环 ---
+    # 由于配置文件中的数据流水线已经保证了输出格式的正确性，
+    # 现在可以极大地简化训练循环中的数据处理代码
     for step, batch in enumerate(dataloader):
         if step >= 10:  # 限制步数用于测试
             break
         
-        # 🔧 关键修复：正确提取和处理批次数据
-        if step == 0:
-            print(f"🔍 调试信息 - Batch 结构: {type(batch)}")
-            if isinstance(batch, dict):
-                print(f"🔍 Batch keys: {list(batch.keys())}")
-                if 'inputs' in batch:
-                    print(f"🔍 inputs 形状: {batch['inputs'].shape if hasattr(batch['inputs'], 'shape') else type(batch['inputs'])}")
-                if 'data_samples' in batch:
-                    print(f"🔍 data_samples 类型: {type(batch['data_samples'])}")
+        # 1. 从批次中解包数据
+        #    MMEngine的pseudo_collate和PackSegInputs确保了这里的格式是固定的
+        inputs = batch['inputs'].to(model_engine.device)
+        data_samples = [s.to(model_engine.device) for s in batch['data_samples']]
+
+        # 2. 直接调用模型
+        #    MMEngine的模型会自动处理 inputs 和 data_samples
+        loss_dict = model_engine(inputs, data_samples, mode='loss')
+        loss = loss_dict['loss'] if isinstance(loss_dict, dict) else loss_dict
         
-        # 🔧 现在使用 MMEngine 的 pseudo_collate，batch 应该直接包含 inputs 和 data_samples
-        # 不再需要复杂的手动处理逻辑
-        
-        # 从 batch 中提取 inputs 和 data_samples
-        if isinstance(batch, dict):
-            inputs = batch.get('inputs')
-            data_samples = batch.get('data_samples')
-        else:
-            # 如果 batch 是 list，说明是 pseudo_collate 的结果
-            inputs = batch[0] if len(batch) > 0 else None
-            data_samples = batch[1] if len(batch) > 1 else None
-        
-        if inputs is None:
-            print("[ERROR] No inputs found in batch")
-            continue
-            
-        print(f"[DEBUG] inputs type: {type(inputs)}, shape: {getattr(inputs, 'shape', 'N/A')}")
-        print(f"[DEBUG] data_samples type: {type(data_samples)}")
-        
-        # 确保 inputs 是正确的张量格式
-        if isinstance(inputs, list):
-            inputs = torch.stack(inputs)
-        elif not isinstance(inputs, torch.Tensor):
-            print(f"[ERROR] Unexpected inputs type: {type(inputs)}")
-            continue
-            
-        # 如果是单张图像，添加 batch 维度
-        if inputs.dim() == 3:
-            print("[DEBUG] single image tensor, unsqueezing batch dim...")
-            inputs = inputs.unsqueeze(0)
-            print(f"[DEBUG] after unsqueeze: {inputs.shape}")
-        
-        # 🔧 混合精度修复：使用模型参数的真实 device 和 dtype
-        device = next(model_engine.parameters()).device
-        dtype = next(model_engine.parameters()).dtype
-        
-        # 🔧 T20 内存安全修复：分步骤进行设备转换
-        print(f"[DEBUG] Converting inputs to device: {device}, dtype: {dtype}")
-        
-        # 先确保张量在 CPU 上且内存连续
-        if inputs.device != torch.device('cpu'):
-            inputs = inputs.cpu().contiguous()
-        
-        # 分步转换：先转换数据类型，再转换设备
-        if inputs.dtype != dtype:
-            inputs = inputs.to(dtype=dtype)
-        
-        if inputs.device != device:
-            inputs = inputs.to(device=device, non_blocking=False)
-        
-        print(f"[DEBUG] final inputs shape: {inputs.shape}, device: {inputs.device}, dtype: {inputs.dtype}")
-        
-        # 🔧 使用 MMEngine 的标准格式调用模型
-        # data_samples 应该已经由 pseudo_collate 正确处理
-        if data_samples is not None:
-            # 确保 data_samples 也在正确的设备上
-            if hasattr(data_samples, 'to'):
-                data_samples = data_samples.to(device)
-            elif isinstance(data_samples, list):
-                for i, sample in enumerate(data_samples):
-                    if hasattr(sample, 'to'):
-                        data_samples[i] = sample.to(device)
-                    elif hasattr(sample, 'gt_sem_seg') and hasattr(sample.gt_sem_seg, 'data'):
-                        sample.gt_sem_seg.data = sample.gt_sem_seg.data.to(device)
-            
-            # 调用模型的 forward 方法
-            loss_dict = model_engine(inputs, data_samples, mode='loss')
-            
-            # 处理返回的 loss
-            if isinstance(loss_dict, dict):
-                loss = loss_dict.get('loss', loss_dict.get('decode.loss_ce', list(loss_dict.values())[0]))
-            else:
-                loss = loss_dict
-        else:
-            # 兜底处理：直接传递 inputs
-            print(f"⚠️ 警告：data_samples为None，直接传递inputs")
-            loss = model_engine(inputs)
-        
+        # 3. 反向传播和优化
         model_engine.backward(loss)
         model_engine.step()
         
