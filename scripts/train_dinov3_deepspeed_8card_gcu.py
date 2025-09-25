@@ -124,9 +124,17 @@ def main() -> None:
     os.environ['CUDA_VISIBLE_DEVICES'] = ''  # 隐藏CUDA设备
     os.environ['TORCH_CUDA_ARCH_LIST'] = ''  # 清空CUDA架构列表
     
-    # 🔧 GCU 分布式训练特定设置
-    os.environ['ECCL_DEBUG'] = '0'  # 禁用 ECCL 调试输出
-    os.environ['TOPS_VISIBLE_DEVICES'] = '0,1,2,3,4,5,6,7'  # 设置可见的 GCU 设备
+    # 🔧 GCU 分布式训练特定设置 - 基于官方最佳实践
+    os.environ['ENFLAME_CLUSTER_PARALLEL'] = 'true'
+    os.environ['ENFLAME_ENABLE_EFP'] = 'true'
+    os.environ['TOPS_VISIBLE_DEVICES'] = '0,1,2,3,4,5,6,7'
+    os.environ['OMP_NUM_THREADS'] = '5'
+    os.environ['ECCL_ASYNC_DISABLE'] = 'false'
+    os.environ['ENABLE_RDMA'] = 'true'
+    os.environ['ECCL_MAX_NCHANNELS'] = '2'
+    os.environ['ENFLAME_UMD_FLAGS'] = 'mem_alloc_retry_times=1'
+    os.environ['ECCL_RUNTIME_3_0_ENABLE'] = 'true'
+    os.environ['ENFLAME_PT_EVALUATE_TENSOR_NEEDED'] = 'false'
     os.environ['PYTORCH_GCU_ALLOC_CONF'] = 'backend:topsMallocAsync'  # GCU 内存分配器
     
     # 强制使用CPU后端进行某些操作
@@ -169,6 +177,21 @@ def main() -> None:
     with open(args.deepspeed, 'r') as f:
         deepspeed_config = json.load(f)
     
+    # 🔧 初始化分布式训练 - 基于官方最佳实践
+    print("🔧 正在初始化分布式训练环境...")
+    
+    # 根据官方文档，确保模型在设备上后再初始化 DeepSpeed
+    if torch_gcu_available and torch_gcu is not None:
+        device = torch_gcu.current_device()
+        model = model.to(f'gcu:{device}')
+        print(f"✅ 模型已移动到 GCU 设备: gcu:{device}")
+    else:
+        model = model.to('cpu')
+        print("⚠️ 使用 CPU 设备")
+    
+    # 初始化分布式后端 - 使用 ECCL (通过 DeepSpeed 自动处理)
+    print("🔧 分布式后端将通过 DeepSpeed 自动初始化")
+    
     # 创建数据加载器
     from torch.utils.data import DataLoader
     
@@ -179,7 +202,7 @@ def main() -> None:
     
     dataloader = DataLoader(
         dataset,
-        batch_size=deepspeed_config.get('train_micro_batch_size_per_gpu', 8),
+        batch_size=deepspeed_config.get('train_micro_batch_size_per_gpu', 2),
         shuffle=True,
         collate_fn=collate,  # 🔧 使用 MMEngine 的 pseudo_collate 处理现代 SegDataSample 对象
         num_workers=4
