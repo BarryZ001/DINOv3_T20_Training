@@ -139,34 +139,13 @@ class LoveDADataset(BaseDataset):
                                 }
                                 data_list.append(data_info)
         
-        # If no real data found, create dummy data to prevent training errors
+        # If no real data found, raise an error instead of creating dummy data
         if not data_list:
-            print("⚠️ No LoveDA data found, creating dummy dataset for testing")
-            import tempfile
-            import numpy as np
-            from PIL import Image
-            
-            # Create temporary directory for dummy data
-            temp_dir = tempfile.mkdtemp(prefix='loveda_dummy_')
-            
-            for i in range(10):  # Reduce to 10 samples for testing
-                # Create dummy image (RGB, 1024x1024)
-                dummy_img = np.random.randint(0, 255, (1024, 1024, 3), dtype=np.uint8)
-                img_path = osp.join(temp_dir, f'dummy_img_{i}.png')
-                Image.fromarray(dummy_img).save(img_path)
-                
-                # Create dummy mask (single channel, 1024x1024, values 0-6 for 7 classes)
-                dummy_mask = np.random.randint(0, 7, (1024, 1024), dtype=np.uint8)
-                mask_path = osp.join(temp_dir, f'dummy_mask_{i}.png')
-                Image.fromarray(dummy_mask, mode='L').save(mask_path)
-                
-                data_list.append({
-                    'img_path': img_path,
-                    'seg_map_path': mask_path,
-                    'label_map': None,
-                    'reduce_zero_label': False,
-                    'seg_fields': []
-                })
+            raise FileNotFoundError(
+                f"No LoveDA data found in {self.data_root}. "
+                f"Please ensure the LoveDA dataset is properly installed and the data_root path is correct. "
+                f"Expected structure: {self.data_root}/[Train|Val|Test]/[Urban|Rural]/images_png/ and masks_png/"
+            )
         else:
             print(f"✅ Successfully loaded {len(data_list)} LoveDA samples")
         

@@ -89,51 +89,13 @@ class MMRS1MDataset(BaseDataset):
             
         print(f"[MMRS1M] 加载了 {len(data_list)} 个数据样本，任务类型: {self.task_type}")
         
-        # 如果没有找到任何真实数据，创建一个占位符数据项以避免空数据集错误
+        # If no real data found, raise an error instead of creating placeholder data
         if not data_list:
-            print(f"[MMRS1M] 警告：未找到数据，使用占位符数据")
-            # 使用项目根目录下的test_image.jpg作为占位符
-            project_root = osp.dirname(osp.dirname(osp.dirname(__file__)))
-            placeholder_img = osp.join(project_root, 'test_image.jpg')
-            
-            if osp.exists(placeholder_img):
-                # 为占位符创建一个简单的分割图（如果需要的话）
-                placeholder_seg = None
-                if self.task_type in ['segmentation', 'detection']:
-                    # 对于需要分割标注的任务，使用图像本身作为占位符分割图
-                    placeholder_seg = placeholder_img
-                
-                placeholder_data = {
-                    'img_path': placeholder_img,
-                    'seg_map_path': placeholder_seg,
-                    'label': 0,
-                    'dataset': 'placeholder',
-                    'modality': self.modality,
-                    'task_type': self.task_type,
-                    'seg_fields': []
-                }
-                
-                # 根据任务类型添加特定字段
-                if self.task_type == 'classification':
-                    placeholder_data['category'] = 'unknown'
-                elif self.task_type == 'detection':
-                    placeholder_data['ann_file'] = None
-                elif self.task_type == 'caption':
-                    placeholder_data['caption'] = 'No real data available'
-                elif self.task_type == 'vqa':
-                    placeholder_data['question'] = 'What is in this image?'
-                    placeholder_data['answer'] = 'No real data available'
-                elif self.task_type == 'rsvg':
-                    placeholder_data['expression'] = 'locate object'
-                    placeholder_data['bbox'] = [0, 0, 100, 100]
-                
-                if self.instruction_format:
-                    placeholder_data['instruction'] = 'This is placeholder data'
-                    placeholder_data['response'] = 'No real data available'
-                
-                data_list = [placeholder_data]
-            else:
-                raise FileNotFoundError(f"No data found and placeholder image does not exist: {placeholder_img}")
+            raise FileNotFoundError(
+                f"No MMRS1M data found for task type '{self.task_type}' in {self.data_root}. "
+                f"Please ensure the MMRS1M dataset is properly installed and the data_root path is correct. "
+                f"Expected data structure should contain the required task-specific directories and files."
+            )
         else:
             print(f"[MMRS1M] 成功加载数据，前3个样本路径:")
             for i, item in enumerate(data_list[:3]):

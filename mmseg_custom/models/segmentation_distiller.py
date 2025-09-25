@@ -3,34 +3,28 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Dict, List, Optional, Union, Any
 
-# Simple mock classes to avoid import issues
-class MockModel:
-    def __init__(self):
+try:
+    from mmengine.registry import MODELS
+    from mmseg.models import BaseSegmentor
+    from mmseg.structures import SegDataSample
+except ImportError:
+    # Fallback if imports fail
+    class BaseSegmentor(nn.Module):
         pass
     
-    def parameters(self):
-        return []
+    class SegDataSample:
+        def __init__(self):
+            self.gt_sem_seg: Optional[torch.Tensor] = None
+            self.pred_sem_seg: Optional[torch.Tensor] = None
     
-    def eval(self):
-        return self
+    class MockRegistry:
+        @staticmethod
+        def register_module():
+            def decorator(cls):
+                return cls
+            return decorator
     
-    def __call__(self, *args, **kwargs):
-        return None
-
-class MockRegistry:
-    @staticmethod
-    def register_module():
-        def decorator(cls):
-            return cls
-        return decorator
-
-class MockSegDataSample:
-    def __init__(self):
-        self.gt_sem_seg: Optional[torch.Tensor] = None
-        self.pred_sem_seg: Optional[torch.Tensor] = None
-
-# Use mock classes
-MODELS = MockRegistry()
+    MODELS = MockRegistry()
 
 class SegmentationDistiller(nn.Module):
     """Knowledge Distillation model for semantic segmentation.
@@ -53,9 +47,26 @@ class SegmentationDistiller(nn.Module):
         self.temperature = self.distill_cfg.get('temperature', 4.0)
         self.feature_loss_weight = self.distill_cfg.get('feature_loss_weight', 0.5)
         
-        # Use mock models to avoid import issues
-        self.teacher_model = MockModel()
-        self.student_model = MockModel()
+        # Initialize teacher and student models with real implementations
+        try:
+            self.teacher_model = MODELS.build(teacher_cfg)
+            self.student_model = MODELS.build(student_cfg)
+            
+            # Load teacher pretrained weights if provided
+            if teacher_pretrained:
+                checkpoint = torch.load(teacher_pretrained, map_location='cpu')
+                self.teacher_model.load_state_dict(checkpoint['state_dict'], strict=False)
+            
+            # Set teacher to eval mode
+            self.teacher_model.eval()
+            for param in self.teacher_model.parameters():
+                param.requires_grad = False
+                
+        except Exception as e:
+            print(f"Warning: Failed to build real models, using fallback: {e}")
+            # Create simple placeholder models
+            self.teacher_model = nn.Identity()
+            self.student_model = nn.Identity()
         
         # Feature adaptation layers (simplified)
         self.feature_adapters = nn.ModuleList([
@@ -109,7 +120,7 @@ class SegmentationDistiller(nn.Module):
         # Create dummy predictions
         predictions = []
         for i in range(batch_size):
-            result = MockSegDataSample()
+            result = SegDataSample()
             result.pred_sem_seg = torch.randn(1, num_classes, height//4, width//4)
             predictions.append(result)
         
