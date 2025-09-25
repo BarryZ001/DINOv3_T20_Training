@@ -53,10 +53,11 @@ def test_distributed():
             current_device = torch_gcu.current_device()
             print(f"🔧 当前进程使用 GCU 设备: {current_device}")
             
-            # 创建测试张量 - 使用torch_gcu.device()方法
+            # 创建测试张量 - 直接使用torch_gcu设备
             test_tensor = torch.randn(4, 4)
-            test_tensor = test_tensor.to(torch_gcu.device(current_device))
+            test_tensor = test_tensor.gcu(current_device)
             print(f"✅ 成功在 GCU:{current_device} 上创建张量: {test_tensor.shape}")
+            print(f"🔧 张量设备: {test_tensor.device}")
             
         except Exception as e:
             print(f"⚠️ GCU 操作失败: {e}")
@@ -79,7 +80,7 @@ def test_distributed():
             # 创建测试张量进行all_reduce
             if torch_gcu_available:
                 test_tensor = torch.ones(2, 2) * rank
-                test_tensor = test_tensor.to(torch_gcu.device(local_rank))
+                test_tensor = test_tensor.gcu(local_rank)
             else:
                 test_tensor = torch.ones(2, 2) * rank
             
