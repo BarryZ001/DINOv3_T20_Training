@@ -310,17 +310,23 @@ def main() -> None:
                 max_w = max(inp.shape[-1] for inp in inputs)
                 print(f"[DEBUG] Target size: {max_h}x{max_w}")
                 
-                # Pad 到统一尺寸
+                # 🔧 修复：使用 F.pad 确保内存连续性和正确的尺寸计算
+                import torch.nn.functional as F
                 padded_inputs = []
                 for inp in inputs:
                     c, h, w = inp.shape
                     if h != max_h or w != max_w:
-                        # 创建 pad 后的 tensor
-                        padded = torch.zeros((c, max_h, max_w), dtype=inp.dtype)
-                        padded[:, :h, :w] = inp
+                        # 计算需要的 padding
+                        pad_h = max_h - h
+                        pad_w = max_w - w
+                        # F.pad 格式: (left, right, top, bottom)
+                        padded = F.pad(inp, (0, pad_w, 0, pad_h), mode='constant', value=0)
+                        # 确保内存连续性
+                        padded = padded.contiguous()
                         padded_inputs.append(padded)
                     else:
-                        padded_inputs.append(inp)
+                        # 确保原始张量也是连续的
+                        padded_inputs.append(inp.contiguous())
                 inputs = padded_inputs
             
             inputs = torch.stack(inputs, dim=0)
@@ -369,17 +375,24 @@ def main() -> None:
                     max_w = max(t.shape[-1] for t in gt_tensors)
                     print(f"[DEBUG] Target gt_semantic_seg size: {max_h}x{max_w}")
                     
-                    # Pad 到统一尺寸
+                    # 🔧 修复：使用 F.pad 确保内存连续性
+                    import torch.nn.functional as F
                     padded_gts = []
                     for t in gt_tensors:
                         if t.dim() == 2:  # [H, W]
                             h, w = t.shape
                             if h != max_h or w != max_w:
-                                padded = torch.zeros((max_h, max_w), dtype=torch.long)
-                                padded[:h, :w] = t.long()
+                                # 计算需要的 padding
+                                pad_h = max_h - h
+                                pad_w = max_w - w
+                                # F.pad 格式: (left, right, top, bottom)
+                                padded = F.pad(t.long(), (0, pad_w, 0, pad_h), mode='constant', value=0)
+                                # 确保内存连续性
+                                padded = padded.contiguous()
                                 padded_gts.append(padded)
                             else:
-                                padded_gts.append(t.long())
+                                # 确保原始张量也是连续的
+                                padded_gts.append(t.long().contiguous())
                         else:
                             padded_gts.append(t.long())
                     gt_tensors = padded_gts
