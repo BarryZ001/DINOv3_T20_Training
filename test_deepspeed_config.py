@@ -8,6 +8,7 @@ import os
 import sys
 import json
 from pathlib import Path
+from typing import Optional, Any
 
 # 设置项目路径
 project_root = Path(__file__).parent
@@ -19,6 +20,10 @@ os.environ['DS_BUILD_FUSED_ADAM'] = '0'
 os.environ['DS_BUILD_CPU_ADAM'] = '1'
 os.environ['DS_BUILD_UTILS'] = '1'
 
+# 类型注解，避免 linter 错误
+deepspeed: Optional[Any] = None
+Config: Optional[Any] = None
+
 def test_deepspeed_config():
     """测试 DeepSpeed 配置是否正确"""
     
@@ -29,8 +34,12 @@ def test_deepspeed_config():
     
     try:
         # 尝试导入 DeepSpeed
-        import deepspeed
-        print("✅ DeepSpeed 导入成功")
+        try:
+            import deepspeed  # type: ignore
+            print("✅ DeepSpeed 导入成功")
+        except ImportError:
+            print("❌ DeepSpeed 未安装，请在 T20 环境中运行")
+            return
         
         # 测试配置文件加载
         config_path = project_root / "configs" / "train_dinov3_mmrs1m_t20_gcu_8card.py"
@@ -38,8 +47,12 @@ def test_deepspeed_config():
             print(f"✅ 配置文件存在: {config_path}")
             
             # 尝试加载配置
-            from mmengine.config import Config
-            cfg = Config.fromfile(str(config_path))
+            try:
+                from mmengine.config import Config  # type: ignore
+                cfg = Config.fromfile(str(config_path))
+            except ImportError:
+                print("❌ MMEngine 未安装，请在 T20 环境中运行")
+                return
             
             # 检查 deepspeed_config
             if hasattr(cfg, 'deepspeed_config'):
