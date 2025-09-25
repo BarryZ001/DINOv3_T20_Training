@@ -124,6 +124,11 @@ def main() -> None:
     os.environ['CUDA_VISIBLE_DEVICES'] = ''  # 隐藏CUDA设备
     os.environ['TORCH_CUDA_ARCH_LIST'] = ''  # 清空CUDA架构列表
     
+    # 🔧 GCU 分布式训练特定设置
+    os.environ['ECCL_DEBUG'] = '0'  # 禁用 ECCL 调试输出
+    os.environ['TOPS_VISIBLE_DEVICES'] = '0,1,2,3,4,5,6,7'  # 设置可见的 GCU 设备
+    os.environ['PYTORCH_GCU_ALLOC_CONF'] = 'backend:topsMallocAsync'  # GCU 内存分配器
+    
     # 强制使用CPU后端进行某些操作
     os.environ['OMP_NUM_THREADS'] = '4'  # 限制OpenMP线程数
     
@@ -192,16 +197,34 @@ def main() -> None:
     
     print("🔧 正在初始化DeepSpeed，使用手动创建的优化器...")
     
-    # 🔧 关键修正 (2/2): 将手动创建的optimizer实例传递给initialize函数
-    # 这避免了DeepSpeed内部尝试编译FusedAdam的问题
-    model_engine, optimizer, _, _ = deepspeed.initialize(
-        model=model,
-        model_parameters=model.parameters(),  # 关键：提供模型参数给DeepSpeed
-        optimizer=optimizer,  # 🔧 关键：传入手动创建的优化器
-        config=deepspeed_config
-    )
+    try:
+        # 🔧 关键修正 (2/2): 将手动创建的optimizer实例传递给initialize函数
+        # 这避免了DeepSpeed内部尝试编译FusedAdam的问题
+        model_engine, optimizer, _, _ = deepspeed.initialize(
+            model=model,
+            model_parameters=model.parameters(),  # 关键：提供模型参数给DeepSpeed
+            optimizer=optimizer,  # 🔧 关键：传入手动创建的优化器
+            config=deepspeed_config
+        )
+        print("✅ DeepSpeed 初始化成功")
+        
+    except Exception as e:
+        print(f"❌ DeepSpeed 初始化失败: {e}")
+        print("🔧 尝试降级到单卡训练模式...")
+        
+        # 降级到单卡训练
+        if torch_gcu_available and torch_gcu is not None:
+            device = torch_gcu.current_device()
+            model = model.to(f'gcu:{device}')
+        else:
+            model = model.to('cpu')
+        
+        # 使用标准优化器
+        optimizer = torch.optim.AdamW(model.parameters(), **optimizer_params)
+        model_engine = model  # 直接使用模型，不使用 DeepSpeed 包装
+        print("✅ 降级到单卡训练模式成功")
     
-    print("DeepSpeed训练开始...")
+    print("训练开始...")
     
     # 🔥 修复的训练循环 - 正确处理批次数据格式
     for step, batch in enumerate(dataloader):
