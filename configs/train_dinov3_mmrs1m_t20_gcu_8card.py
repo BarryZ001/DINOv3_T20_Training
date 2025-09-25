@@ -279,46 +279,46 @@ deepspeed_config = dict(
     train_micro_batch_size_per_gpu=8,
     gradient_accumulation_steps=1,
     
-    # 🔧 关键修复：明确指定AdamW优化器，避免DeepSpeed使用CUDA专用的FusedAdam
-    # 这解决了在GCU环境下的 IndexError: list index out of range 错误
-    optimizer=dict(
-        type='AdamW',  # 使用标准PyTorch AdamW，兼容GCU硬件，避免CUDA专用组件
-        params=dict(
-            lr=1e-4,
-            betas=[0.9, 0.999],
-            eps=1e-8,
-            weight_decay=0.05
-        )
-    ),
+    # 🔧 关键修复：使用标准DeepSpeed格式明确指定AdamW优化器
+    # 避免DeepSpeed使用CUDA专用的FusedAdam，解决GCU环境下的IndexError
+    optimizer={
+        "type": "AdamW",  # 标准PyTorch AdamW，兼容GCU硬件
+        "params": {
+            "lr": 1e-4,
+            "betas": [0.9, 0.999],
+            "eps": 1e-8,
+            "weight_decay": 0.05
+        }
+    },
     
-    scheduler=dict(
-        type='WarmupCosineLR',
-        params=dict(
-            total_num_steps=100000,
-            warmup_num_steps=1000,
-            warmup_max_lr=1e-4,
-            warmup_min_lr=1e-6
-        )
-    ),
+    scheduler={
+        "type": "WarmupCosineLR",
+        "params": {
+            "total_num_steps": 100000,
+            "warmup_num_steps": 1000,
+            "warmup_max_lr": 1e-4,
+            "warmup_min_lr": 1e-6
+        }
+    },
     
-    fp16=dict(
-        enabled=True,
-        loss_scale=0,
-        loss_scale_window=1000,
-        initial_scale_power=16,
-        hysteresis=2,
-        min_loss_scale=1
-    ),
+    fp16={
+        "enabled": True,
+        "loss_scale": 0,
+        "loss_scale_window": 1000,
+        "initial_scale_power": 16,
+        "hysteresis": 2,
+        "min_loss_scale": 1
+    },
     
-    zero_optimization=dict(
-        stage=2,
-        allgather_partitions=True,
-        allgather_bucket_size=2e8,
-        overlap_comm=True,
-        reduce_scatter=True,
-        reduce_bucket_size=2e8,
-        contiguous_gradients=True
-    ),
+    zero_optimization={
+        "stage": 2,
+        "allgather_partitions": True,
+        "allgather_bucket_size": 2e8,
+        "overlap_comm": True,
+        "reduce_scatter": True,
+        "reduce_bucket_size": 2e8,
+        "contiguous_gradients": True
+    },
     
     gradient_clipping=1.0,
     wall_clock_breakdown=False,
