@@ -14,6 +14,14 @@ export MASTER_PORT=29500
 export TOPS_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 export ECCL_DEBUG=0
 
+# DeepSpeed FusedAdam禁用环境变量 - 解决GCU兼容性问题
+export DS_BUILD_FUSED_ADAM=0
+export DEEPSPEED_DISABLE_FUSED_ADAM=1
+export DS_BUILD_CPU_ADAM=1
+export DS_BUILD_UTILS=0
+export DS_BUILD_AIO=0
+export DS_BUILD_SPARSE_ATTN=0
+
 # 训练参数
 CONFIG_FILE="configs/train_dinov3_mmrs1m_t20_gcu_8card.py"
 WORK_DIR="work_dirs/dinov3_mmrs1m_t20_8card"
@@ -38,6 +46,8 @@ cat > ${DEEPSPEED_CONFIG} << EOF
             "weight_decay": 0.05
         }
     },
+    
+    "disable_fused_adam": true,
     
     "scheduler": {
         "type": "WarmupCosineLR",
