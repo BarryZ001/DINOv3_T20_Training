@@ -296,12 +296,12 @@ deepspeed_config = dict(
     },
     
     scheduler={
-        "type": "WarmupCosineLR",
+        "type": "WarmupDecayLR",  # 使用 DeepSpeed 支持的调度器名称
         "params": {
-            "total_num_steps": 100000,
-            "warmup_num_steps": 1000,
-            "warmup_max_lr": 1e-4,
-            "warmup_min_lr": 1e-6
+            "total_num_steps": 100000,  # 必需参数：总训练步数
+            "warmup_num_steps": 1000,   # warmup 步数
+            "warmup_max_lr": 1e-4,      # warmup 最大学习率
+            "warmup_min_lr": 1e-6       # warmup 最小学习率
         }
     },
     
