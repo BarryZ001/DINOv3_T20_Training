@@ -210,10 +210,10 @@ def main() -> None:
                 inputs = inputs.unsqueeze(0)
                 print(f"[DEBUG] after unsqueeze: {inputs.shape}")
             
-            # 🔧 数据类型修复：转换到 XLA 设备和半精度
-            device = torch.device("xla")
-            inputs = inputs.to(device, dtype=torch.half)
-            print(f"[DEBUG] inputs moved to device: {device}, dtype: {inputs.dtype}")
+            # 🔧 混合精度修复：使用 DeepSpeed 自动类型转换
+            # 让 DeepSpeed 根据配置自动处理 fp16/fp32 转换
+            inputs = inputs.to(model_engine.device).to(model_engine.dtype)
+            print(f"[DEBUG] inputs moved to device: {model_engine.device}, dtype: {inputs.dtype}")
             print(f"[DEBUG] final inputs shape: {inputs.shape}")
             
             # 🔧 将监督信号也转移到相同设备
@@ -221,13 +221,13 @@ def main() -> None:
                 for i, sample in enumerate(data_samples):
                     if hasattr(sample, 'gt_sem_seg') and sample.gt_sem_seg is not None:
                         if hasattr(sample.gt_sem_seg, 'data'):
-                            sample.gt_sem_seg.data = sample.gt_sem_seg.data.to(device)
-                            print(f"[DEBUG] gt_sem_seg[{i}] moved to device: {device}")
+                            sample.gt_sem_seg.data = sample.gt_sem_seg.data.to(model_engine.device)
+                            print(f"[DEBUG] gt_sem_seg[{i}] moved to device: {model_engine.device}")
             
             # 处理 batch 中的 gt_semantic_seg（如果存在）
             if 'gt_semantic_seg' in batch:
-                batch['gt_semantic_seg'] = batch['gt_semantic_seg'].to(device)
-                print(f"[DEBUG] batch gt_semantic_seg moved to device: {device}")
+                batch['gt_semantic_seg'] = batch['gt_semantic_seg'].to(model_engine.device)
+                print(f"[DEBUG] batch gt_semantic_seg moved to device: {model_engine.device}")
             
             # 调用模型的 forward 方法
             loss_dict = model_engine(inputs, data_samples, mode='loss')
