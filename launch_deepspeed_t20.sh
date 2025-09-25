@@ -50,7 +50,7 @@ cat > ${DEEPSPEED_CONFIG} << EOF
     "disable_fused_adam": true,
     
     "scheduler": {
-        "type": "WarmupCosineLR",
+        "type": "WarmupDecayLR",
         "params": {
             "total_num_steps": 100000,
             "warmup_num_steps": 1000,
