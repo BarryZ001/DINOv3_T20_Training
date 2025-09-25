@@ -179,17 +179,52 @@ def main() -> None:
     
     print("DeepSpeed训练开始...")
     
-    # 简单训练循环
+    # 🔥 修复的训练循环 - 正确处理批次数据格式
     for step, batch in enumerate(dataloader):
         if step >= 10:  # 限制步数用于测试
             break
+        
+        # 🔧 关键修复：正确提取和处理批次数据
+        if step == 0:
+            print(f"🔍 调试信息 - Batch 结构: {type(batch)}")
+            if isinstance(batch, dict):
+                print(f"🔍 Batch keys: {list(batch.keys())}")
+                if 'inputs' in batch:
+                    print(f"🔍 inputs 形状: {batch['inputs'].shape if hasattr(batch['inputs'], 'shape') else type(batch['inputs'])}")
+                if 'data_samples' in batch:
+                    print(f"🔍 data_samples 类型: {type(batch['data_samples'])}")
+        
+        # 根据 MMEngine 标准，模型期望接收 inputs 和 data_samples
+        if isinstance(batch, dict) and 'inputs' in batch:
+            # 标准 MMEngine 格式
+            inputs = batch['inputs']
+            data_samples = batch.get('data_samples', None)
             
-        loss = model_engine(batch)
+            # 确保 inputs 是 4D tensor
+            if hasattr(inputs, 'dim') and inputs.dim() == 3:
+                inputs = inputs.unsqueeze(0)  # 添加批次维度
+                print(f"⚠️ 警告：添加了批次维度，新形状: {inputs.shape}")
+            
+            # 调用模型的 forward 方法
+            loss_dict = model_engine(inputs, data_samples, mode='loss')
+            
+            # 处理返回的 loss
+            if isinstance(loss_dict, dict):
+                loss = loss_dict.get('loss', loss_dict.get('decode.loss_ce', list(loss_dict.values())[0]))
+            else:
+                loss = loss_dict
+                
+        else:
+            # 兜底处理：直接传递整个 batch
+            print(f"⚠️ 警告：使用兜底处理，直接传递 batch")
+            loss = model_engine(batch)
+        
         model_engine.backward(loss)
         model_engine.step()
         
         if step % 5 == 0:
-            print(f"Step {step}, Loss: {loss.item()}")
+            loss_value = loss.item() if hasattr(loss, 'item') else loss
+            print(f"Step {step}, Loss: {loss_value}")
     
     print("训练完成")
 

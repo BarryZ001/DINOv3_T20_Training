@@ -132,10 +132,8 @@ train_pipeline = [
         seg_pad_val=255,
         pad_to_square=False  # 确保填充到指定尺寸
     ),
-    # 🔧 关键修复：添加ImageToTensor转换确保正确的维度重排
-    # 将HWC格式的NumPy数组转换为CHW格式的PyTorch tensor
-    dict(type='CustomImageToTensor', keys=['img']),
-    # PackSegInputs负责最终的数据打包，添加批次维度
+    # 🔥 关键修复：让 PackSegInputs 作为最终步骤处理数据格式化
+    # 移除 CustomImageToTensor，PackSegInputs 会正确处理 tensor 转换和批次维度
     dict(
         type='PackSegInputs', 
         meta_keys=('img_path', 'ori_shape', 'img_shape', 'pad_shape', 'scale_factor', 'flip', 'flip_direction')
