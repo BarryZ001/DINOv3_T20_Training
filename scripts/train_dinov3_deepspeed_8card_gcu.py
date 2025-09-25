@@ -66,97 +66,20 @@ if mmengine_available:
         pass
 
 
-def mmseg_collate_fn(batch, pad_value=0):
-    """
-    mmsegmentation-style collate_fn:
-    - 自动把 numpy 转 torch.Tensor
-    - 自动 pad 保证 batch 内图像尺寸一致
-    - 保持 dict 结构 (inputs / gt_semantic_seg)
-    """
-    # batch: list[dict]
-    elem = batch[0]
-    if isinstance(elem, dict):
-        collated = {}
-        for key in elem:
-            values = [d[key] for d in batch]
+# 🔧 注释掉自定义 collate 函数，现在使用 MMEngine 的 pseudo_collate
+# 这个函数之前用于处理 numpy 到 tensor 的转换和 padding，
+# 但现在数据管道已经使用 PackSegInputs 产生标准的 SegDataSample 对象，
+# 应该使用 MMEngine 的 pseudo_collate 来避免 RecursionError
 
-            # === 自动把 numpy 转 tensor ===
-            if isinstance(values[0], np.ndarray):
-                values = [torch.from_numpy(v) for v in values]
-            elif isinstance(values[0], list) and len(values[0]) > 0 and isinstance(values[0][0], np.ndarray):
-                # 处理 list of numpy arrays
-                values = [[torch.from_numpy(arr) for arr in v] for v in values]
-
-            # === 图像数据 (inputs) ===
-            if key == "inputs":
-                # 如果是 list of tensors，先处理成统一格式
-                if isinstance(values[0], list):
-                    # 展平成单个 tensor 列表
-                    flat_tensors = []
-                    for v in values:
-                        flat_tensors.extend(v)
-                    values = flat_tensors
-                
-                # 找出最大高宽
-                max_h = max(v.shape[-2] for v in values if hasattr(v, 'shape'))
-                max_w = max(v.shape[-1] for v in values if hasattr(v, 'shape'))
-                padded = []
-                for v in values:
-                    if hasattr(v, 'dim') and v.dim() == 3:  # [C, H, W]
-                        c, h, w = v.shape
-                        pad = torch.full((c, max_h, max_w), pad_value, dtype=v.dtype)
-                        pad[:, :h, :w] = v
-                        padded.append(pad)
-                    elif hasattr(v, 'dim') and v.dim() == 4:  # [B, C, H, W] - 已经是批次
-                        padded.append(v)
-                
-                collated[key] = torch.stack(padded, dim=0)  # [B,C,H,W]
-
-            # === 标签数据 (gt_semantic_seg) ===
-            elif key == "gt_semantic_seg":
-                # 如果是 list of tensors，先处理成统一格式
-                if isinstance(values[0], list):
-                    # 展平成单个 tensor 列表
-                    flat_tensors = []
-                    for v in values:
-                        flat_tensors.extend(v)
-                    values = flat_tensors
-                
-                max_h = max(v.shape[-2] for v in values if hasattr(v, 'shape'))
-                max_w = max(v.shape[-1] for v in values if hasattr(v, 'shape'))
-                padded = []
-                for v in values:
-                    if hasattr(v, 'dim') and v.dim() == 2:  # [H, W]
-                        h, w = v.shape
-                        pad = torch.full((max_h, max_w), pad_value, dtype=torch.long)
-                        pad[:h, :w] = v.long()
-                        padded.append(pad)
-                    elif hasattr(v, 'dim') and v.dim() == 3:  # [1, H, W] or [C, H, W]
-                        if v.shape[0] == 1:  # [1, H, W]
-                            h, w = v.shape[-2:]
-                            pad = torch.full((1, max_h, max_w), pad_value, dtype=torch.long)
-                            pad[:, :h, :w] = v.long()
-                            padded.append(pad)
-                        else:  # [C, H, W] - 取第一个通道作为标签
-                            h, w = v.shape[-2:]
-                            pad = torch.full((max_h, max_w), pad_value, dtype=torch.long)
-                            pad[:h, :w] = v[0].long()  # 取第一个通道
-                            padded.append(pad)
-                
-                collated[key] = torch.stack(padded, dim=0)  # [B,H,W] or [B,1,H,W]
-
-            else:
-                # 其他 key 用默认方式
-                try:
-                    collated[key] = default_collate(values)
-                except:
-                    # 如果默认 collate 失败，保持原样
-                    collated[key] = values
-
-        return collated
-
-    else:
-        return default_collate(batch)
+# def mmseg_collate_fn(batch, pad_value=0):
+#     """
+#     mmsegmentation-style collate_fn:
+#     - 自动把 numpy 转 torch.Tensor
+#     - 自动 pad 保证 batch 内图像尺寸一致
+#     - 保持 dict 结构 (inputs / gt_semantic_seg)
+#     """
+#     # ... (原有实现已注释)
+#     pass
 
 
 def build_components(cfg: Any, device_name: str) -> tuple:
@@ -243,11 +166,17 @@ def main() -> None:
     
     # 创建数据加载器
     from torch.utils.data import DataLoader
+    
+    # 🔧 关键修复：强制使用 MMEngine 的 pseudo_collate 来处理 SegDataSample 对象
+    # 这解决了 RecursionError: maximum recursion depth exceeded 的问题
+    if not collate:
+        raise RuntimeError("MMEngine pseudo_collate is required but not available. Please install MMEngine.")
+    
     dataloader = DataLoader(
         dataset,
         batch_size=deepspeed_config.get('train_micro_batch_size_per_gpu', 8),
         shuffle=True,
-        collate_fn=collate if collate else None,  # 🔧 暂时使用原来的 collate，在训练循环中手动处理
+        collate_fn=collate,  # 🔧 使用 MMEngine 的 pseudo_collate 处理现代 SegDataSample 对象
         num_workers=4
     )
     
@@ -289,87 +218,44 @@ def main() -> None:
                 if 'data_samples' in batch:
                     print(f"🔍 data_samples 类型: {type(batch['data_samples'])}")
         
-        # 根据 MMEngine 标准，模型期望接收 inputs 和 data_samples
-        if isinstance(batch, dict) and 'inputs' in batch:
-            # 标准 MMEngine 格式
-            inputs = batch['inputs']
-            data_samples = batch.get('data_samples', None)
+        # 🔧 现在使用 MMEngine 的 pseudo_collate，batch 应该直接包含 inputs 和 data_samples
+        # 不再需要复杂的手动处理逻辑
+        
+        # 从 batch 中提取 inputs 和 data_samples
+        if isinstance(batch, dict):
+            inputs = batch.get('inputs')
+            data_samples = batch.get('data_samples')
+        else:
+            # 如果 batch 是 list，说明是 pseudo_collate 的结果
+            inputs = batch[0] if len(batch) > 0 else None
+            data_samples = batch[1] if len(batch) > 1 else None
+        
+        if inputs is None:
+            print("[ERROR] No inputs found in batch")
+            continue
             
-            # 🔧 关键修复：如果data_samples为None，从gt_semantic_seg构建data_samples
-            if data_samples is None and 'gt_semantic_seg' in batch:
-                print("[DEBUG] data_samples is None, constructing from gt_semantic_seg...")
-                gt_semantic_seg = batch['gt_semantic_seg']
-                batch_size = inputs.size(0) if hasattr(inputs, 'size') else len(inputs)
-                
-                # 构建标准的data_samples列表
-                data_samples = []
-                for i in range(batch_size):
-                    # 创建单个样本的data_sample字典
-                    if hasattr(gt_semantic_seg, 'size') and gt_semantic_seg.dim() >= 3:
-                        # gt_semantic_seg是tensor，提取第i个样本
-                        gt_seg_i = gt_semantic_seg[i] if gt_semantic_seg.size(0) > i else gt_semantic_seg[0]
-                    else:
-                        # 处理其他格式
-                        gt_seg_i = gt_semantic_seg
-                    
-                    # 构建符合MMSeg期望的data_sample格式
-                    data_sample = {
-                        'gt_sem_seg': {
-                            'data': gt_seg_i
-                        }
-                    }
-                    data_samples.append(data_sample)
-                
-                print(f"[DEBUG] Constructed {len(data_samples)} data_samples from gt_semantic_seg")
-                # 更新batch以包含构建的data_samples
-                batch['data_samples'] = data_samples
-            
-            # 🔧 关键修复：确保 inputs 是正确的 4D tensor (B, C, H, W)
+        print(f"[DEBUG] inputs type: {type(inputs)}, shape: {getattr(inputs, 'shape', 'N/A')}")
+        print(f"[DEBUG] data_samples type: {type(data_samples)}")
+        
+        # 确保 inputs 是正确的张量格式
         if isinstance(inputs, list):
-            print(f"[DEBUG] inputs is list, stacking {len(inputs)} tensors...")
-            # 检查是否有不同尺寸的图像
-            shapes = [inp.shape for inp in inputs]
-            print(f"[DEBUG] input shapes: {shapes}")
+            inputs = torch.stack(inputs)
+        elif not isinstance(inputs, torch.Tensor):
+            print(f"[ERROR] Unexpected inputs type: {type(inputs)}")
+            continue
             
-            # 🔧 关键修复：强制所有输入resize到模型期望的512x512尺寸
-            # 不管输入尺寸是否一致，都统一resize到512x512
-            print("[DEBUG] Forcing all inputs to 512x512 to match model expectations...")
-            target_h, target_w = 512, 512
-            print(f"[DEBUG] Target size: {target_h}x{target_w}")
-            
-            import torch.nn.functional as F
-            resized_inputs = []
-            for inp in inputs:
-                c, h, w = inp.shape
-                if h != target_h or w != target_w:
-                    # 使用双线性插值resize到目标尺寸
-                    # 先添加batch维度进行resize，然后移除
-                    inp_batch = inp.unsqueeze(0)  # [1, C, H, W]
-                    resized = F.interpolate(inp_batch, size=(target_h, target_w), 
-                                          mode='bilinear', align_corners=False)
-                    resized = resized.squeeze(0)  # [C, H, W]
-                    print(f"[DEBUG] Resized from {h}x{w} to {resized.shape[-2]}x{resized.shape[-1]}")
-                    resized_inputs.append(resized.contiguous())
-                else:
-                    # 尺寸已经正确，确保内存连续性
-                    resized_inputs.append(inp.contiguous())
-            inputs = resized_inputs
-            
-            inputs = torch.stack(inputs, dim=0)
-            print(f"[DEBUG] after stacking: {inputs.shape}")
-        elif isinstance(inputs, torch.Tensor) and inputs.dim() == 3:
+        # 如果是单张图像，添加 batch 维度
+        if inputs.dim() == 3:
             print("[DEBUG] single image tensor, unsqueezing batch dim...")
             inputs = inputs.unsqueeze(0)
             print(f"[DEBUG] after unsqueeze: {inputs.shape}")
         
         # 🔧 混合精度修复：使用模型参数的真实 device 和 dtype
-        # 获取 DeepSpeed 包裹后的真实模型参数信息
         device = next(model_engine.parameters()).device
         dtype = next(model_engine.parameters()).dtype
         
-        # 🔧 T20 内存安全修复：分步骤进行设备转换，避免内存指针错误
+        # 🔧 T20 内存安全修复：分步骤进行设备转换
         print(f"[DEBUG] Converting inputs to device: {device}, dtype: {dtype}")
-        print(f"[DEBUG] Original inputs device: {inputs.device}, dtype: {inputs.dtype}")
         
         # 先确保张量在 CPU 上且内存连续
         if inputs.device != torch.device('cpu'):
@@ -378,119 +264,24 @@ def main() -> None:
         # 分步转换：先转换数据类型，再转换设备
         if inputs.dtype != dtype:
             inputs = inputs.to(dtype=dtype)
-            print(f"[DEBUG] Converted dtype to: {inputs.dtype}")
         
-        # 最后转换设备，使用 non_blocking=False 确保同步转换
         if inputs.device != device:
             inputs = inputs.to(device=device, non_blocking=False)
-            print(f"[DEBUG] Converted device to: {inputs.device}")
         
         print(f"[DEBUG] final inputs shape: {inputs.shape}, device: {inputs.device}, dtype: {inputs.dtype}")
         
-        # 🔧 处理 batch 中的 gt_semantic_seg（如果存在）
-        if 'gt_semantic_seg' in batch:
-            gt_seg = batch['gt_semantic_seg']
-            print(f"[DEBUG] gt_semantic_seg type: {type(gt_seg)}")
-            
-            if isinstance(gt_seg, list):
-                print(f"[DEBUG] gt_semantic_seg is list, len={len(gt_seg)}")
-                print(f"[DEBUG] gt_semantic_seg element types: {[type(x) for x in gt_seg]}")
-                
-                # 先将 numpy 转换为 tensor
-                gt_tensors = []
-                for i, seg in enumerate(gt_seg):
-                    if isinstance(seg, np.ndarray):
-                        gt_tensors.append(torch.from_numpy(seg))
-                    elif isinstance(seg, torch.Tensor):
-                        gt_tensors.append(seg)
-                    else:
-                        raise TypeError(f"Unexpected gt_semantic_seg[{i}] type: {type(seg)}")
-                
-                # 检查尺寸是否一致
-                shapes = [t.shape for t in gt_tensors]
-                print(f"[DEBUG] gt_semantic_seg shapes: {shapes}")
-                
-                if len(set(shapes)) > 1:
-                    print("[DEBUG] Found different gt_semantic_seg sizes, padding to common size...")
-                    # 找到最大尺寸
-                    max_h = max(t.shape[-2] for t in gt_tensors)
-                    max_w = max(t.shape[-1] for t in gt_tensors)
-                    print(f"[DEBUG] Target gt_semantic_seg size: {max_h}x{max_w}")
-                    
-                    # 🔧 修复：使用 F.pad 确保内存连续性
-                    import torch.nn.functional as F
-                    padded_gts = []
-                    for t in gt_tensors:
-                        if t.dim() == 2:  # [H, W]
-                            h, w = t.shape
-                            if h != max_h or w != max_w:
-                                # 计算需要的 padding
-                                pad_h = max_h - h
-                                pad_w = max_w - w
-                                # F.pad 格式: (left, right, top, bottom)
-                                padded = F.pad(t.long(), (0, pad_w, 0, pad_h), mode='constant', value=0)
-                                # 确保内存连续性
-                                padded = padded.contiguous()
-                                padded_gts.append(padded)
-                            else:
-                                # 确保原始张量也是连续的
-                                padded_gts.append(t.long().contiguous())
-                        else:
-                            padded_gts.append(t.long())
-                    gt_tensors = padded_gts
-                
-                # 堆叠并移动到设备 - 🔧 T20 内存安全修复
-                print("[DEBUG] Stacking gt_semantic_seg tensors...")
-                stacked_gt = torch.stack(gt_tensors)
-                print(f"[DEBUG] Stacked gt_semantic_seg shape: {stacked_gt.shape}")
-                
-                # 分步转换到目标设备，避免内存指针错误
-                if stacked_gt.device != torch.device('cpu'):
-                    stacked_gt = stacked_gt.cpu().contiguous()
-                
-                # 先转换数据类型
-                if stacked_gt.dtype != torch.long:
-                    stacked_gt = stacked_gt.to(dtype=torch.long)
-                    print(f"[DEBUG] Converted gt_semantic_seg dtype to: {stacked_gt.dtype}")
-                
-                # 最后转换设备
-                if stacked_gt.device != device:
-                    stacked_gt = stacked_gt.to(device=device, non_blocking=False)
-                    print(f"[DEBUG] Converted gt_semantic_seg device to: {stacked_gt.device}")
-                
-                batch['gt_semantic_seg'] = stacked_gt
-                print(f"[DEBUG] Final gt_semantic_seg: shape={batch['gt_semantic_seg'].shape}, device={batch['gt_semantic_seg'].device}, dtype={batch['gt_semantic_seg'].dtype}")
-            else:
-                # 单个张量或 numpy 数组 - 🔧 T20 内存安全修复
-                print("[DEBUG] Processing single gt_semantic_seg...")
-                if isinstance(gt_seg, np.ndarray):
-                    gt_seg = torch.from_numpy(gt_seg)
-                    print(f"[DEBUG] Converted numpy to tensor: {gt_seg.shape}")
-                
-                # 分步转换到目标设备，避免内存指针错误
-                if gt_seg.device != torch.device('cpu'):
-                    gt_seg = gt_seg.cpu().contiguous()
-                
-                # 先转换数据类型
-                if gt_seg.dtype != torch.long:
-                    gt_seg = gt_seg.to(dtype=torch.long)
-                    print(f"[DEBUG] Converted single gt_semantic_seg dtype to: {gt_seg.dtype}")
-                
-                # 最后转换设备
-                if gt_seg.device != device:
-                    gt_seg = gt_seg.to(device=device, non_blocking=False)
-                    print(f"[DEBUG] Converted single gt_semantic_seg device to: {gt_seg.device}")
-                
-                batch['gt_semantic_seg'] = gt_seg
-                print(f"[DEBUG] Final single gt_semantic_seg: shape={batch['gt_semantic_seg'].shape}, device={batch['gt_semantic_seg'].device}, dtype={batch['gt_semantic_seg'].dtype}")
-            
-            # 🔧 将监督信号也转移到相同设备
-            if data_samples is not None:
+        # 🔧 使用 MMEngine 的标准格式调用模型
+        # data_samples 应该已经由 pseudo_collate 正确处理
+        if data_samples is not None:
+            # 确保 data_samples 也在正确的设备上
+            if hasattr(data_samples, 'to'):
+                data_samples = data_samples.to(device)
+            elif isinstance(data_samples, list):
                 for i, sample in enumerate(data_samples):
-                    if hasattr(sample, 'gt_sem_seg') and sample.gt_sem_seg is not None:
-                        if hasattr(sample.gt_sem_seg, 'data'):
-                            sample.gt_sem_seg.data = sample.gt_sem_seg.data.to(device=device)
-                            print(f"[DEBUG] gt_sem_seg[{i}] moved to device: {device}")
+                    if hasattr(sample, 'to'):
+                        data_samples[i] = sample.to(device)
+                    elif hasattr(sample, 'gt_sem_seg') and hasattr(sample.gt_sem_seg, 'data'):
+                        sample.gt_sem_seg.data = sample.gt_sem_seg.data.to(device)
             
             # 调用模型的 forward 方法
             loss_dict = model_engine(inputs, data_samples, mode='loss')
@@ -500,11 +291,10 @@ def main() -> None:
                 loss = loss_dict.get('loss', loss_dict.get('decode.loss_ce', list(loss_dict.values())[0]))
             else:
                 loss = loss_dict
-                
         else:
-            # 兜底处理：直接传递整个 batch
-            print(f"⚠️ 警告：使用兜底处理，直接传递 batch")
-            loss = model_engine(batch)
+            # 兜底处理：直接传递 inputs
+            print(f"⚠️ 警告：data_samples为None，直接传递inputs")
+            loss = model_engine(inputs)
         
         model_engine.backward(loss)
         model_engine.step()
