@@ -83,14 +83,31 @@ def build_components(cfg: Any, device_name: str) -> tuple:
 
 def main() -> None:
     """主训练函数"""
-    # 🔧 强制禁用CUDA特定优化器，确保GCU环境兼容性
+    # 🔧 强化版GCU兼容性设置 - 彻底禁用所有CUDA特定功能
     # 这是解决IndexError: list index out of range的关键环境变量设置
+    
+    # DeepSpeed CUDA特定组件禁用
     os.environ['DEEPSPEED_DISABLE_FUSED_ADAM'] = '1'
     os.environ['DS_BUILD_FUSED_ADAM'] = '0'
     os.environ['DS_BUILD_CPU_ADAM'] = '1'  # 强制使用CPU版本的Adam
     os.environ['DS_BUILD_UTILS'] = '0'  # 禁用其他CUDA特定工具
     os.environ['DS_BUILD_AIO'] = '0'  # 禁用异步IO（可能依赖CUDA）
     os.environ['DS_BUILD_SPARSE_ATTN'] = '0'  # 禁用稀疏注意力（CUDA特定）
+    
+    # 额外的CUDA特定功能禁用
+    os.environ['DS_BUILD_FUSED_LAMB'] = '0'  # 禁用FusedLamb优化器
+    os.environ['DS_BUILD_TRANSFORMER'] = '0'  # 禁用CUDA Transformer内核
+    os.environ['DS_BUILD_STOCHASTIC_TRANSFORMER'] = '0'  # 禁用随机Transformer
+    os.environ['DS_BUILD_TRANSFORMER_INFERENCE'] = '0'  # 禁用Transformer推理内核
+    os.environ['DS_BUILD_QUANTIZER'] = '0'  # 禁用量化器（可能依赖CUDA）
+    os.environ['DS_BUILD_RANDOM_LTD'] = '0'  # 禁用随机LTD
+    
+    # PyTorch CUDA相关设置
+    os.environ['CUDA_VISIBLE_DEVICES'] = ''  # 隐藏CUDA设备
+    os.environ['TORCH_CUDA_ARCH_LIST'] = ''  # 清空CUDA架构列表
+    
+    # 强制使用CPU后端进行某些操作
+    os.environ['OMP_NUM_THREADS'] = '4'  # 限制OpenMP线程数
     
     parser = argparse.ArgumentParser(description='DeepSpeed Training')
     parser.add_argument('--config', required=True, help='配置文件路径')
