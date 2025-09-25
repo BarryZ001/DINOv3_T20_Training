@@ -331,32 +331,29 @@ def main() -> None:
             shapes = [inp.shape for inp in inputs]
             print(f"[DEBUG] input shapes: {shapes}")
             
-            # 如果尺寸不一致，需要 resize 到统一大小
-            if len(set(shapes)) > 1:
-                print("[DEBUG] Found different input sizes, resizing to common size...")
-                # 找到最大尺寸
-                max_h = max(inp.shape[-2] for inp in inputs)
-                max_w = max(inp.shape[-1] for inp in inputs)
-                print(f"[DEBUG] Target size: {max_h}x{max_w}")
-                
-                # 🔧 修复：使用 F.pad 确保内存连续性和正确的尺寸计算
-                import torch.nn.functional as F
-                padded_inputs = []
-                for inp in inputs:
-                    c, h, w = inp.shape
-                    if h != max_h or w != max_w:
-                        # 计算需要的 padding
-                        pad_h = max_h - h
-                        pad_w = max_w - w
-                        # F.pad 格式: (left, right, top, bottom)
-                        padded = F.pad(inp, (0, pad_w, 0, pad_h), mode='constant', value=0)
-                        # 确保内存连续性
-                        padded = padded.contiguous()
-                        padded_inputs.append(padded)
-                    else:
-                        # 确保原始张量也是连续的
-                        padded_inputs.append(inp.contiguous())
-                inputs = padded_inputs
+            # 🔧 关键修复：强制所有输入resize到模型期望的512x512尺寸
+            # 不管输入尺寸是否一致，都统一resize到512x512
+            print("[DEBUG] Forcing all inputs to 512x512 to match model expectations...")
+            target_h, target_w = 512, 512
+            print(f"[DEBUG] Target size: {target_h}x{target_w}")
+            
+            import torch.nn.functional as F
+            resized_inputs = []
+            for inp in inputs:
+                c, h, w = inp.shape
+                if h != target_h or w != target_w:
+                    # 使用双线性插值resize到目标尺寸
+                    # 先添加batch维度进行resize，然后移除
+                    inp_batch = inp.unsqueeze(0)  # [1, C, H, W]
+                    resized = F.interpolate(inp_batch, size=(target_h, target_w), 
+                                          mode='bilinear', align_corners=False)
+                    resized = resized.squeeze(0)  # [C, H, W]
+                    print(f"[DEBUG] Resized from {h}x{w} to {resized.shape[-2]}x{resized.shape[-1]}")
+                    resized_inputs.append(resized.contiguous())
+                else:
+                    # 尺寸已经正确，确保内存连续性
+                    resized_inputs.append(inp.contiguous())
+            inputs = resized_inputs
             
             inputs = torch.stack(inputs, dim=0)
             print(f"[DEBUG] after stacking: {inputs.shape}")
