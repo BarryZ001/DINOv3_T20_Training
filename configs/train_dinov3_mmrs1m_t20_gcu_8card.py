@@ -122,7 +122,7 @@ train_pipeline = [
     # `keep_ratio=False` 会直接拉伸/压缩到目标尺寸，确保所有输出尺寸一致。
     dict(
         type='CustomResize',
-        scale=crop_size,  # crop_size 应该是 (512, 512)
+        img_scale=crop_size,  # crop_size 应该是 (512, 512)
         keep_ratio=False
     ),
     
@@ -150,7 +150,7 @@ val_pipeline = [
     dict(type='CustomLoadAnnotations'),
     dict(
         type='CustomResize',
-        scale=crop_size,  # 使用crop_size确保尺寸一致
+        img_scale=crop_size,  # 使用crop_size确保尺寸一致
         keep_ratio=False  # 验证时也要禁用keep_ratio确保尺寸一致
     ),
     dict(type='CustomNormalize', **img_norm_cfg),
