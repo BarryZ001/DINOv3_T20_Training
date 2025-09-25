@@ -358,13 +358,11 @@ class PackSegInputs:
         # 保持原始的数据结构，让MMEngine的标准流程处理
         # 这样可以确保与pseudo_collate兼容
         
-        # 确保图像格式正确
+        # 保持图像格式不变 - 让CustomImageToTensor的CHW格式保持
+        # 不再强制转换为HWC，因为CustomImageToTensor已经正确处理了格式
         if 'img' in results:
             img = results['img']
-            # 确保图像是HWC格式的numpy数组
-            if len(img.shape) == 3 and img.shape[0] in [1, 3]:
-                # 如果是CHW格式，转换为HWC
-                img = np.transpose(img, (1, 2, 0))
+            # 保持tensor格式不变，让DataLoader处理批次维度
             results['img'] = img
             
         # 确保分割图格式正确
