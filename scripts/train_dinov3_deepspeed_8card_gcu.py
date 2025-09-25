@@ -82,6 +82,13 @@ def build_components(cfg: Any, device_name: str) -> tuple:
 
 
 def main() -> None:
+    """主训练函数"""
+    # 🔧 强制禁用CUDA特定优化器，确保GCU环境兼容性
+    # 这是解决IndexError: list index out of range的关键环境变量设置
+    os.environ['DEEPSPEED_DISABLE_FUSED_ADAM'] = '1'
+    os.environ['DS_BUILD_FUSED_ADAM'] = '0'
+    os.environ['DS_BUILD_CPU_ADAM'] = '1'  # 强制使用CPU版本的Adam
+    
     parser = argparse.ArgumentParser(description='DeepSpeed Training')
     parser.add_argument('--config', required=True, help='配置文件路径')
     parser.add_argument('--work-dir', required=True, help='工作目录')
@@ -99,6 +106,8 @@ def main() -> None:
     if not deepspeed_available or deepspeed is None:
         print("Error: DeepSpeed not available")
         return
+    
+    print(f"🔧 已设置环境变量禁用FusedAdam，确保GCU兼容性")
     
     # 加载配置
     cfg = Config.fromfile(args.config)
@@ -131,6 +140,8 @@ def main() -> None:
     # 不再手动创建优化器，避免与DeepSpeed的FusedAdam冲突
     # 配置文件中已明确指定使用AdamW优化器，兼容GCU硬件
     # 这修复了 IndexError: list index out of range 错误，确保使用标准PyTorch优化器
+    # 🔧 新增：通过环境变量和配置参数双重保障禁用FusedAdam
+    print("🔧 正在初始化DeepSpeed，已禁用FusedAdam确保GCU兼容性...")
     model_engine, optimizer, _, _ = deepspeed.initialize(
         model=model,
         config=deepspeed_config

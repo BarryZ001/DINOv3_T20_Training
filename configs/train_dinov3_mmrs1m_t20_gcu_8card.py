@@ -279,6 +279,10 @@ deepspeed_config = dict(
     train_micro_batch_size_per_gpu=8,
     gradient_accumulation_steps=1,
     
+    # 🔧 关键修复：强制禁用FusedAdam，确保GCU环境兼容性
+    # 这是解决IndexError: list index out of range的根本方案
+    disable_fused_adam=True,  # 强制禁用CUDA专用的FusedAdam优化器
+    
     # 🔧 关键修复：使用标准DeepSpeed格式明确指定AdamW优化器
     # 避免DeepSpeed使用CUDA专用的FusedAdam，解决GCU环境下的IndexError
     optimizer={
