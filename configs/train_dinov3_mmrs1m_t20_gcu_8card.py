@@ -275,7 +275,7 @@ default_hooks = dict(
 
 # DeepSpeed配置集成 - 修复优化器配置以避免CUDA特定的FusedAdam
 deepspeed_config = dict(
-    train_batch_size=64,  # 8卡 * 8 batch_size
+    train_batch_size=8,  # 单卡测试时使用8，8卡训练时DeepSpeed会自动调整为64
     train_micro_batch_size_per_gpu=8,
     gradient_accumulation_steps=1,
     
