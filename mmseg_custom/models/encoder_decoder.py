@@ -87,13 +87,47 @@ class EncoderDecoder(BaseModel):
                 mode: str = 'tensor') -> Union[Dict[str, torch.Tensor], List[Any]]:
         """前向传播"""
         
-        # 处理data_preprocessor的输出格式
+        # 🔧 修复数据输入格式处理 - 兼容多种数据格式
         if isinstance(inputs, dict):
-            # 如果inputs是dict，提取真实的inputs和data_samples
-            actual_inputs = inputs['inputs']
-            if data_samples is None and 'data_samples' in inputs:
-                data_samples = inputs['data_samples']
-            inputs = actual_inputs
+            # 情况1: 标准MMEngine格式 {'inputs': tensor, 'data_samples': [...]}
+            if 'inputs' in inputs:
+                actual_inputs = inputs['inputs']
+                if data_samples is None and 'data_samples' in inputs:
+                    data_samples = inputs['data_samples']
+                inputs = actual_inputs
+            # 情况2: 直接的batch数据格式 {'img': tensor, 'gt_semantic_seg': tensor, ...}
+            elif 'img' in inputs:
+                actual_inputs = inputs['img']
+                # 构造data_samples用于loss计算
+                if data_samples is None and 'gt_semantic_seg' in inputs:
+                    gt_seg = inputs['gt_semantic_seg']
+                    # 构造简单的data_samples格式
+                    batch_size = gt_seg.shape[0] if hasattr(gt_seg, 'shape') else 1
+                    data_samples = []
+                    for i in range(batch_size):
+                        # 创建简单的对象来存储分割标注
+                        sample = {}
+                        sample['gt_sem_seg'] = {}
+                        sample['gt_sem_seg']['data'] = gt_seg[i] if batch_size > 1 else gt_seg
+                        sample['metainfo'] = inputs.get('img_metas', {})
+                        data_samples.append(sample)
+                inputs = actual_inputs
+            else:
+                # 如果是其他格式的dict，尝试找到图像数据
+                possible_keys = ['image', 'images', 'input', 'x']
+                for key in possible_keys:
+                    if key in inputs:
+                        inputs = inputs[key]
+                        break
+                else:
+                    raise KeyError(f"Cannot find image data in input dict. Available keys: {list(inputs.keys())}")
+        
+        # 如果inputs仍然不是tensor，尝试转换
+        if not isinstance(inputs, torch.Tensor):
+            if hasattr(inputs, 'data'):
+                inputs = inputs.data
+            elif isinstance(inputs, (list, tuple)) and len(inputs) > 0:
+                inputs = inputs[0]
         
         if mode == 'loss':
             return self.loss(inputs, data_samples)
