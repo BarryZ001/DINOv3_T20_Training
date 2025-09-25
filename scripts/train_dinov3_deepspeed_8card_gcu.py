@@ -137,6 +137,11 @@ def main() -> None:
     os.environ['ENFLAME_PT_EVALUATE_TENSOR_NEEDED'] = 'false'
     os.environ['PYTORCH_GCU_ALLOC_CONF'] = 'backend:topsMallocAsync'  # GCU 内存分配器
     
+    # 🚀 流水线并行配置 - 燧原官方推荐
+    os.environ['TP_SIZE'] = '1'  # 张量并行大小设为1
+    os.environ['PP_SIZE'] = '8'  # 流水线并行大小设为8（8卡）
+    os.environ['DP_SIZE'] = '1'  # 数据并行大小设为1
+    
     # 强制使用CPU后端进行某些操作
     os.environ['OMP_NUM_THREADS'] = '4'  # 限制OpenMP线程数
     
@@ -223,6 +228,15 @@ def main() -> None:
     try:
         # 🔧 关键修正 (2/2): 将手动创建的optimizer实例传递给initialize函数
         # 这避免了DeepSpeed内部尝试编译FusedAdam的问题
+        # 🚀 添加流水线并行支持 - 燧原官方推荐
+        
+        # 从环境变量获取并行配置
+        tensor_parallel_size = int(os.environ.get('TP_SIZE', '1'))
+        pipeline_parallel_size = int(os.environ.get('PP_SIZE', '8'))
+        data_parallel_size = int(os.environ.get('DP_SIZE', '1'))
+        
+        print(f"🚀 并行配置: TP={tensor_parallel_size}, PP={pipeline_parallel_size}, DP={data_parallel_size}")
+        
         model_engine, optimizer, _, _ = deepspeed.initialize(
             model=model,
             model_parameters=model.parameters(),  # 关键：提供模型参数给DeepSpeed
