@@ -147,9 +147,17 @@ val_pipeline = [
     dict(
         type='CustomResize',
         img_scale=img_size,
-        keep_ratio=True
+        keep_ratio=False,  # 🔥 关键修复：验证时也要禁用keep_ratio确保尺寸一致
+        backend='pillow'
     ),
     dict(type='CustomNormalize', **img_norm_cfg),
+    dict(
+        type='CustomPad', 
+        size=crop_size, 
+        pad_val=0, 
+        seg_pad_val=255,
+        pad_to_square=False  # 确保填充到指定尺寸
+    ),
     # 使用标准的PackSegInputs替代CustomCollect
     dict(type='PackSegInputs', meta_keys=('img_path', 'ori_shape', 'img_shape', 'pad_shape', 'scale_factor'))
 ]
