@@ -309,17 +309,11 @@ deepspeed_config = dict(
     # 这样可以避免 DeepSpeed 在 GCU 环境下创建 torch.float16 优化器
     # 从而解决 "incompatible tensor type" 错误
     
-    # ZeRO 优化配置 - 降级到 Stage 1 以提高 GCU 兼容性
-    # Stage 1 只对优化器状态进行分区，避免 Stage 2 的底层张量操作兼容性问题
+    # ZeRO优化配置 - 降级到Stage 0以确保最大GCU兼容性
     zero_optimization={
-        "stage": 1,  # 从 Stage 2 降级到 Stage 1，提高硬件兼容性
-        # Stage 1 不需要 Stage 2 的高级参数，简化配置
-        # "allgather_partitions": True,     # Stage 2 专属
-        # "allgather_bucket_size": 2e8,     # Stage 2 专属
-        # "overlap_comm": True,             # Stage 2 专属
-        # "reduce_scatter": True,           # Stage 2 专属
-        # "reduce_bucket_size": 2e8,        # Stage 2 专属
-        # "contiguous_gradients": True      # Stage 2 专属
+        "stage": 0,  # 降级到 Stage 0，禁用所有内存分区功能，确保最大兼容性
+        # Stage 0 使用标准数据并行，类似于PyTorch的DistributedDataParallel
+        # 虽然没有内存优化，但与GCU/XLA后端兼容性最好
     },
     
     gradient_clipping=1.0,
