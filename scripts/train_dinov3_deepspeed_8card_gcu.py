@@ -224,8 +224,9 @@ def main() -> None:
             print("🔧 等待 GCU Context 完全初始化...")
             torch_gcu.synchronize()
             
-            # 现在安全地移动模型
-            model = model.to(f'gcu:{device}')
+            # 现在安全地移动模型 - 使用torch_gcu.device()方法
+            gcu_device = torch_gcu.device(device)
+            model = model.to(gcu_device)
             device_name = f'gcu:{device}'
             print(f"✅ 模型已安全移动到 GCU 设备: {device_name}")
             

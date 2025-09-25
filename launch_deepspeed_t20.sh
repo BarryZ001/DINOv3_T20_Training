@@ -99,11 +99,11 @@ echo "📁 工作目录: ${WORK_DIR}"
 echo "📁 DeepSpeed配置: ${DEEPSPEED_CONFIG}"
 echo "🔧 使用燧原官方torch.distributed.launch方式启动"
 
-# 🔧 使用燧原官方推荐的torch.distributed.launch启动方式
-# 这是燧原GCU分布式训练的标准启动方法，参考官方llama2示例
-DISTRIBUTED_ARGS="--nproc_per_node $GPUS_PER_NODE --nnodes $NNODES --node_rank $NODE_RANK --master_addr $MASTER_ADDR --master_port $MASTER_PORT"
+# 🔧 使用现代化的torchrun启动方式 (替代已弃用的torch.distributed.launch)
+# 这是燧原GCU分布式训练的标准启动方法，兼容最新PyTorch版本
+echo "启动命令: torchrun --nproc_per_node=$GPUS_PER_NODE --nnodes=$NNODES --node_rank=$NODE_RANK --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT"
 
-python3 -u -m torch.distributed.launch $DISTRIBUTED_ARGS \
+torchrun --nproc_per_node=$GPUS_PER_NODE --nnodes=$NNODES --node_rank=$NODE_RANK --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT \
     scripts/train_dinov3_deepspeed_8card_gcu.py \
     --config ${CONFIG_FILE} \
     --work-dir ${WORK_DIR} \

@@ -39,15 +39,13 @@ echo "MASTER_ADDR=$MASTER_ADDR"
 echo "MASTER_PORT=$MASTER_PORT"
 echo "GPUS_PER_NODE=$GPUS_PER_NODE"
 
-# 🔧 使用燧原官方推荐的torch.distributed.launch启动方式
-DISTRIBUTED_ARGS="--nproc_per_node $GPUS_PER_NODE --nnodes $NNODES --node_rank $NODE_RANK --master_addr $MASTER_ADDR --master_port $MASTER_PORT"
-
+# 🔧 使用现代化的torchrun启动方式 (替代已弃用的torch.distributed.launch)
 echo ""
 echo "🚀 启动8卡分布式测试..."
-echo "启动命令: python3 -u -m torch.distributed.launch $DISTRIBUTED_ARGS test_distributed_gcu.py"
+echo "启动命令: torchrun --nproc_per_node=$GPUS_PER_NODE --nnodes=$NNODES --node_rank=$NODE_RANK --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT test_distributed_gcu.py"
 echo ""
 
-python3 -u -m torch.distributed.launch $DISTRIBUTED_ARGS test_distributed_gcu.py
+torchrun --nproc_per_node=$GPUS_PER_NODE --nnodes=$NNODES --node_rank=$NODE_RANK --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT test_distributed_gcu.py
 
 echo ""
 echo "✅ 分布式连接测试完成!"
