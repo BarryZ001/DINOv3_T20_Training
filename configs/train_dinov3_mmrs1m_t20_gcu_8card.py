@@ -132,9 +132,8 @@ train_pipeline = [
         seg_pad_val=255,
         pad_to_square=False  # 确保填充到指定尺寸
     ),
-    # 🔥 关键修复：添加 ImageToTensor 确保 numpy 数组转换为 torch.Tensor
-    dict(type='ImageToTensor', keys=['img']),
-    # 🔥 关键修复：PackSegInputs作为最终步骤处理数据格式化和批次维度
+    # 🔥 关键修复：移除ImageToTensor，让PackSegInputs处理所有格式化
+    # PackSegInputs会自动处理numpy到tensor的转换并确保正确的批次维度
     dict(
         type='PackSegInputs', 
         meta_keys=('img_path', 'ori_shape', 'img_shape', 'pad_shape', 'scale_factor', 'flip', 'flip_direction')
