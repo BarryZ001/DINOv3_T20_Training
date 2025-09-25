@@ -202,27 +202,32 @@ def main() -> None:
     with open(args.deepspeed, 'r') as f:
         deepspeed_config = json.load(f)
     
-    # 🔧 初始化分布式训练 - 基于官方最佳实践
-    print("🔧 正在初始化分布式训练环境...")
+    # 🔧 初始化分布式训练 - 基于燧原官方最佳实践
+    print("🔧 正在初始化燧原GCU分布式训练环境...")
     
-    # 🔧 关键修复：安全的 GCU 设备初始化，避免 Context 创建错误
+    # 🔧 获取分布式训练参数
+    local_rank = args.local_rank if hasattr(args, 'local_rank') else 0
+    world_size = int(os.environ.get('WORLD_SIZE', '8'))
+    rank = int(os.environ.get('RANK', '0'))
+    
+    print(f"🔧 分布式参数: local_rank={local_rank}, world_size={world_size}, rank={rank}")
+    
+    # 🔧 安全的 GCU 设备初始化
     if torch_gcu_available and torch_gcu is not None:
         try:
-            # 先检查 GCU 设备可用性
-            device_count = torch_gcu.device_count()
-            print(f"🔍 检测到 {device_count} 个 GCU 设备")
-            
-            # 安全地获取当前设备
+            # 设置当前设备为local_rank对应的GCU设备
+            torch_gcu.set_device(local_rank)
             device = torch_gcu.current_device()
-            print(f"🔧 当前 GCU 设备: {device}")
+            print(f"🔧 设置GCU设备: gcu:{device} (local_rank: {local_rank})")
             
             # 延迟模型移动，先让 GCU 完全初始化
             print("🔧 等待 GCU Context 完全初始化...")
-            torch_gcu.synchronize()  # 确保 GCU 完全就绪
+            torch_gcu.synchronize()
             
             # 现在安全地移动模型
             model = model.to(f'gcu:{device}')
-            print(f"✅ 模型已安全移动到 GCU 设备: gcu:{device}")
+            device_name = f'gcu:{device}'
+            print(f"✅ 模型已安全移动到 GCU 设备: {device_name}")
             
         except Exception as e:
             print(f"⚠️ GCU 初始化失败: {e}")
@@ -231,10 +236,11 @@ def main() -> None:
             device_name = 'cpu'
     else:
         model = model.to('cpu')
+        device_name = 'cpu'
         print("⚠️ 使用 CPU 设备")
     
-    # 初始化分布式后端 - 使用 ECCL (通过 DeepSpeed 自动处理)
-    print("🔧 分布式后端将通过 DeepSpeed 自动初始化")
+    # 🔧 初始化分布式后端 - 让 torch.distributed.launch 处理
+    print("🔧 分布式后端由 torch.distributed.launch 自动初始化 (使用 ECCL)")
     
     # 创建数据加载器
     from torch.utils.data import DataLoader
@@ -265,37 +271,26 @@ def main() -> None:
     print("🔧 正在初始化DeepSpeed，使用手动创建的优化器...")
     
     try:
-        # 🔧 关键修正 (2/2): 将手动创建的optimizer实例传递给initialize函数
-        # 这避免了DeepSpeed内部尝试编译FusedAdam的问题
-        # 🚀 添加流水线并行支持 - 燧原官方推荐
-        
-        # 从环境变量获取并行配置
-        tensor_parallel_size = int(os.environ.get('TP_SIZE', '1'))
-        pipeline_parallel_size = int(os.environ.get('PP_SIZE', '8'))
-        data_parallel_size = int(os.environ.get('DP_SIZE', '1'))
-        
-        print(f"🚀 并行配置: TP={tensor_parallel_size}, PP={pipeline_parallel_size}, DP={data_parallel_size}")
+        # 🔧 关键修正: 使用燧原官方推荐的DeepSpeed初始化方式
+        print("🔧 正在初始化DeepSpeed引擎...")
         
         model_engine, optimizer, _, _ = deepspeed.initialize(
             model=model,
-            model_parameters=model.parameters(),  # 关键：提供模型参数给DeepSpeed
-            optimizer=optimizer,  # 🔧 关键：传入手动创建的优化器
-            config=deepspeed_config
+            model_parameters=model.parameters(),
+            optimizer=optimizer,  # 使用手动创建的优化器，避免FusedAdam编译问题
+            config=deepspeed_config,
+            dist_init_required=False  # 重要：由于torch.distributed.launch已经初始化了分布式，这里设为False
         )
-        print("✅ DeepSpeed 初始化成功")
+        print("✅ DeepSpeed 引擎初始化成功")
+        
+        # 验证设备
+        print(f"🔧 模型设备: {next(model_engine.parameters()).device}")
         
     except Exception as e:
         print(f"❌ DeepSpeed 初始化失败: {e}")
         print("🔧 尝试降级到单卡训练模式...")
         
         # 降级到单卡训练
-        if torch_gcu_available and torch_gcu is not None:
-            device = torch_gcu.current_device()
-            model = model.to(f'gcu:{device}')
-        else:
-            model = model.to('cpu')
-        
-        # 使用标准优化器
         optimizer = torch.optim.AdamW(model.parameters(), **optimizer_params)
         model_engine = model  # 直接使用模型，不使用 DeepSpeed 包装
         print("✅ 降级到单卡训练模式成功")

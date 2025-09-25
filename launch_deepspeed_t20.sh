@@ -1,26 +1,43 @@
 #!/bin/bash
 
-# 燧原T20 DeepSpeed训练启动脚本 (生产版)
-# 使用标准DeepSpeed命令启动8卡分布式训练
+# 燧原T20 DeepSpeed训练启动脚本 (基于官方最佳实践优化版)
+# 严格遵循燧原官方分布式训练规范
 
-set -e
+set -eu -o pipefail
 
-# 环境配置
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-export MASTER_ADDR=localhost
-export MASTER_PORT=29500
-
-# 燧原GCU环境变量
+# 🔧 燧原GCU核心环境变量配置 - 基于官方最佳实践
+export ENFLAME_CLUSTER_PARALLEL=true
+export ENFLAME_ENABLE_EFP=true
 export TOPS_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-export ECCL_DEBUG=0
 
-# DeepSpeed FusedAdam禁用环境变量 - 解决GCU兼容性问题
+# 🔧 燧原分布式训练环境变量 - 官方推荐配置
+export OMP_NUM_THREADS=5
+export ECCL_ASYNC_DISABLE=false
+export ENABLE_RDMA=true
+export ECCL_MAX_NCHANNELS=2
+export ENFLAME_UMD_FLAGS="mem_alloc_retry_times=1"
+export ECCL_RUNTIME_3_0_ENABLE=true
+export ENFLAME_PT_EVALUATE_TENSOR_NEEDED=false
+
+# 🔧 禁用CUDA相关设备，强制使用GCU
+export CUDA_VISIBLE_DEVICES=""
+
+# 🔧 分布式训练配置
+export MASTER_ADDR=${MASTER_ADDR:-"localhost"}
+export MASTER_PORT=${MASTER_PORT:-"29500"}
+export GPUS_PER_NODE=8
+export NNODES=1
+export NODE_RANK=0
+
+# 🔧 DeepSpeed GCU兼容性环境变量 - 禁用所有CUDA特定组件
 export DS_BUILD_FUSED_ADAM=0
 export DEEPSPEED_DISABLE_FUSED_ADAM=1
 export DS_BUILD_CPU_ADAM=1
 export DS_BUILD_UTILS=0
 export DS_BUILD_AIO=0
 export DS_BUILD_SPARSE_ATTN=0
+export DS_BUILD_FUSED_LAMB=0
+export DS_BUILD_TRANSFORMER=0
 
 # 训练参数
 CONFIG_FILE="configs/train_dinov3_mmrs1m_t20_gcu_8card.py"
@@ -30,12 +47,13 @@ DEEPSPEED_CONFIG="deepspeed_config.json"
 # 创建工作目录
 mkdir -p ${WORK_DIR}
 
-# 生成DeepSpeed配置文件
+# 🔧 生成燧原GCU优化的DeepSpeed配置文件 - 基于官方最佳实践
 cat > ${DEEPSPEED_CONFIG} << EOF
 {
     "train_batch_size": 64,
     "train_micro_batch_size_per_gpu": 8,
     "gradient_accumulation_steps": 1,
+    "steps_per_print": 100,
     
     "optimizer": {
         "type": "AdamW",
@@ -47,8 +65,6 @@ cat > ${DEEPSPEED_CONFIG} << EOF
         }
     },
     
-    "disable_fused_adam": true,
-    
     "scheduler": {
         "type": "WarmupDecayLR",
         "params": {
@@ -59,43 +75,40 @@ cat > ${DEEPSPEED_CONFIG} << EOF
         }
     },
     
-    "fp16": {
-        "enabled": false,
-        "loss_scale": 0,
-        "loss_scale_window": 1000,
-        "initial_scale_power": 16,
-        "hysteresis": 2,
-        "min_loss_scale": 1
+    "zero_optimization": {
+        "stage": 0
     },
     
-    "zero_optimization": {
-        "stage": 2,
-        "allgather_partitions": true,
-        "allgather_bucket_size": 2e8,
-        "overlap_comm": true,
-        "reduce_scatter": true,
-        "reduce_bucket_size": 2e8,
-        "contiguous_gradients": true
+    "fp16": {
+        "enabled": false
+    },
+    
+    "bf16": {
+        "enabled": false
     },
     
     "gradient_clipping": 1.0,
-    "wall_clock_breakdown": false,
-    "steps_per_print": 100
+    "wall_clock_breakdown": true,
+    "disable_fused_adam": true
 }
 EOF
 
-echo "启动DeepSpeed训练..."
-echo "配置文件: ${CONFIG_FILE}"
-echo "工作目录: ${WORK_DIR}"
-echo "DeepSpeed配置: ${DEEPSPEED_CONFIG}"
+echo "🚀 启动燧原T20 8卡分布式DeepSpeed训练..."
+echo "📁 配置文件: ${CONFIG_FILE}"
+echo "📁 工作目录: ${WORK_DIR}"
+echo "📁 DeepSpeed配置: ${DEEPSPEED_CONFIG}"
+echo "🔧 使用燧原官方torch.distributed.launch方式启动"
 
-# 使用标准DeepSpeed命令启动训练
-deepspeed --num_gpus=8 \
-    --master_port=${MASTER_PORT} \
+# 🔧 使用燧原官方推荐的torch.distributed.launch启动方式
+# 这是燧原GCU分布式训练的标准启动方法，参考官方llama2示例
+DISTRIBUTED_ARGS="--nproc_per_node $GPUS_PER_NODE --nnodes $NNODES --node_rank $NODE_RANK --master_addr $MASTER_ADDR --master_port $MASTER_PORT"
+
+python3 -u -m torch.distributed.launch $DISTRIBUTED_ARGS \
     scripts/train_dinov3_deepspeed_8card_gcu.py \
     --config ${CONFIG_FILE} \
     --work-dir ${WORK_DIR} \
     --deepspeed ${DEEPSPEED_CONFIG} \
-    --launcher deepspeed
+    --launcher pytorch \
+    --distributed-backend eccl
 
-echo "训练完成!"
+echo "✅ 训练完成!"
