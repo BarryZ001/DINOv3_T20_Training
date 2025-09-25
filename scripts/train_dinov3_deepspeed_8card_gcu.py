@@ -14,7 +14,13 @@ from typing import Optional, Any
 # 项目路径配置
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
-os.environ.setdefault('PYTORCH_GCU_ALLOC_CONF', 'backend:topsMallocAsync')
+
+# 🔧 GCU 内存分配优化 - 解决 invalid pointer 错误
+# 使用更保守的内存分配策略，避免异步分配器的指针问题
+os.environ.setdefault('PYTORCH_GCU_ALLOC_CONF', 'backend:topsMalloc')
+# 添加额外的 GCU 环境变量以提高稳定性
+os.environ.setdefault('GCU_MEMORY_FRACTION', '0.8')  # 限制内存使用，避免内存碎片
+os.environ.setdefault('GCU_ENABLE_LAZY_INIT', '0')   # 禁用延迟初始化，确保确定性行为
 
 import torch
 import numpy as np
@@ -135,7 +141,8 @@ def main() -> None:
     os.environ['ENFLAME_UMD_FLAGS'] = 'mem_alloc_retry_times=1'
     os.environ['ECCL_RUNTIME_3_0_ENABLE'] = 'true'
     os.environ['ENFLAME_PT_EVALUATE_TENSOR_NEEDED'] = 'false'
-    os.environ['PYTORCH_GCU_ALLOC_CONF'] = 'backend:topsMallocAsync'  # GCU 内存分配器
+    # 🔧 关键修复：使用同步内存分配器，避免 invalid pointer 错误
+    os.environ['PYTORCH_GCU_ALLOC_CONF'] = 'backend:topsMalloc'  # 改为同步分配器
     
     # 🚀 流水线并行配置 - 燧原官方推荐
     os.environ['TP_SIZE'] = '1'  # 张量并行大小设为1
@@ -185,11 +192,30 @@ def main() -> None:
     # 🔧 初始化分布式训练 - 基于官方最佳实践
     print("🔧 正在初始化分布式训练环境...")
     
-    # 根据官方文档，确保模型在设备上后再初始化 DeepSpeed
+    # 🔧 关键修复：安全的 GCU 设备初始化，避免 Context 创建错误
     if torch_gcu_available and torch_gcu is not None:
-        device = torch_gcu.current_device()
-        model = model.to(f'gcu:{device}')
-        print(f"✅ 模型已移动到 GCU 设备: gcu:{device}")
+        try:
+            # 先检查 GCU 设备可用性
+            device_count = torch_gcu.device_count()
+            print(f"🔍 检测到 {device_count} 个 GCU 设备")
+            
+            # 安全地获取当前设备
+            device = torch_gcu.current_device()
+            print(f"🔧 当前 GCU 设备: {device}")
+            
+            # 延迟模型移动，先让 GCU 完全初始化
+            print("🔧 等待 GCU Context 完全初始化...")
+            torch_gcu.synchronize()  # 确保 GCU 完全就绪
+            
+            # 现在安全地移动模型
+            model = model.to(f'gcu:{device}')
+            print(f"✅ 模型已安全移动到 GCU 设备: gcu:{device}")
+            
+        except Exception as e:
+            print(f"⚠️ GCU 初始化失败: {e}")
+            print("🔧 降级到 CPU 模式...")
+            model = model.to('cpu')
+            device_name = 'cpu'
     else:
         model = model.to('cpu')
         print("⚠️ 使用 CPU 设备")
