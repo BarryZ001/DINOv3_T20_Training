@@ -88,6 +88,9 @@ def main() -> None:
     os.environ['DEEPSPEED_DISABLE_FUSED_ADAM'] = '1'
     os.environ['DS_BUILD_FUSED_ADAM'] = '0'
     os.environ['DS_BUILD_CPU_ADAM'] = '1'  # 强制使用CPU版本的Adam
+    os.environ['DS_BUILD_UTILS'] = '0'  # 禁用其他CUDA特定工具
+    os.environ['DS_BUILD_AIO'] = '0'  # 禁用异步IO（可能依赖CUDA）
+    os.environ['DS_BUILD_SPARSE_ATTN'] = '0'  # 禁用稀疏注意力（CUDA特定）
     
     parser = argparse.ArgumentParser(description='DeepSpeed Training')
     parser.add_argument('--config', required=True, help='配置文件路径')
@@ -107,7 +110,7 @@ def main() -> None:
         print("Error: DeepSpeed not available")
         return
     
-    print(f"🔧 已设置环境变量禁用FusedAdam，确保GCU兼容性")
+    print(f"🔧 已设置环境变量禁用FusedAdam和其他CUDA特定组件，确保GCU兼容性")
     
     # 加载配置
     cfg = Config.fromfile(args.config)

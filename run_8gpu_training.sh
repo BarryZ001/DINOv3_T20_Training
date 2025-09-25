@@ -32,6 +32,11 @@ export MASTER_PORT=29500
 export WORLD_SIZE=8
 export NPROC_PER_NODE=8
 
+# 强制禁用DeepSpeed的CUDA特定优化器 - 修复IndexError
+export DS_BUILD_FUSED_ADAM=0
+export DEEPSPEED_DISABLE_FUSED_ADAM=1
+export DS_BUILD_CPU_ADAM=1
+
 echo "📋 训练配置:"
 echo "   - 计算设备: 燧原T20 GCU x 8"
 echo "   - 配置文件: $CONFIG_PATH"
